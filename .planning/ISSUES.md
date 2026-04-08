@@ -14,10 +14,6 @@
   Impact: final freeze signoff cannot begin.
   Current handling: Phase 13 onward is dedicated to checklist/docs completion and review.
 
-- **GitHub remote is not connected yet**
-  Impact: local GSD atomic commits can run, but remote backup/PR workflows are unavailable.
-  Current handling: local repository initialized on `main`; create and push the remote after a GitHub token is visible to the current process or `gh` is authenticated.
-
 ## Deferred Enhancements
 
 - Teach cockpit sync to parse executed plan summaries and update Notion automatically after every plan completion.

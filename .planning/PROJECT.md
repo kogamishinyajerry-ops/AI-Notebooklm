@@ -50,7 +50,7 @@ The Notion control hub already exists at a dedicated page and now needs to becom
 
 - **Governance**: Final freeze signoff is manual-only — no automation may imply or perform `freeze-complete`.
 - **Review**: Opus 4.6 review triggers must remain explicit human actions, even if surrounding planning and execution are automated.
-- **Repository**: This directory is now a local git repository on `main`; GitHub remote creation is still pending until a GitHub token is visible to the current process or `gh` is authenticated.
+- **Repository**: This directory is now a git-backed repository on `main`, tracking `origin/main` at `https://github.com/kogamishinyajerry-ops/kogamishinyajerry-ops`.
 - **Truth Source**: Accepted docs and state files in the repository remain canonical over Notion summaries.
 - **Domain Safety**: Accepted schema, trace, validator, evaluator, and runtime boundaries must not be reopened casually while building cockpit infrastructure.
 
@@ -63,6 +63,7 @@ The Notion control hub already exists at a dedicated page and now needs to becom
 | Treat Opus 4.6 as explicit review gates in roadmap and Notion | Makes human review pauses first-class and resumable | ✓ Good |
 | Record current failing tests as blockers instead of silently fixing scope | Cockpit should surface repo reality before automating over it | ✓ Good |
 | Enable planning doc commits after git initialization | Repo now has `.git`, so GSD planning artifacts can participate in atomic commits | ✓ Good |
+| Connect GitHub remote after initial repo bootstrap | Enables remote backup and future PR/push workflows | ✓ Good |
 
 ---
-*Last updated: 2026-04-09 after local git initialization*
+*Last updated: 2026-04-09 after GitHub remote initialization*

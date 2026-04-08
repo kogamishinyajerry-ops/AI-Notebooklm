@@ -44,6 +44,7 @@ Recent decisions affecting current work:
 - [Phase 12]: Treat Opus 4.6 reviews as explicit pause gates in both roadmap and Notion.
 - [Phase 12]: Record no-git mode and failing tests as explicit blockers instead of hiding them.
 - [Current session]: Initialize local git repository on `main` and enable GSD planning artifact commits.
+- [Current session]: Create GitHub remote `kogamishinyajerry-ops/kogamishinyajerry-ops` and push `main`.
 
 ### Pending Todos
 
@@ -51,7 +52,6 @@ None yet.
 
 ### Blockers/Concerns
 
-- GitHub remote is not connected yet because no GitHub token or `gh` login is visible in the current process.
 - `pytest` currently reports 7 failures tied to freeze/baseline drift and Phase 7 inventory expectations.
 - `freeze-readiness --dir artifacts` still fails because checklist/docs remain incomplete.
 

@@ -47,7 +47,7 @@ This document explains how `AI ControlLogicMaster` now uses GSD plus Notion as a
 
 ## Known Limits
 
-- The workspace is now a local git repository on `main`, but the GitHub remote is not connected yet because no token or `gh` login is visible in the current process.
+- The workspace is now a git-backed repository on `main`, tracking `origin/main` at `https://github.com/kogamishinyajerry-ops/kogamishinyajerry-ops`.
 - `pytest` is not fully green, so repo health must be treated as partially blocked.
 
 ## Sync Commands
