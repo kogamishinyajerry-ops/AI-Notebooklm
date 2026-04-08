@@ -1,0 +1,16 @@
+run_id: RUN-6DB52F3E5B98
+scenario_id: SCENARIO-DEMO
+records:
+  - tick_id: 1
+    applied_signals:
+      IFACE-0001.N1_Speed: 15
+    mode_before: MODE-0001
+    candidates_considered:
+      - TRANS-0001
+      - TRANS-0002
+    transition_selected:
+    actions_emitted: []
+    mode_after: MODE-0001
+    block_reason:
+    run_id: RUN-6DB52F3E5B98
+    scenario_id: SCENARIO-DEMO

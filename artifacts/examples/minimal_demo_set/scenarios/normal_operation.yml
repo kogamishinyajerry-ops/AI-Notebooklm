@@ -1,0 +1,32 @@
+# Demo scenario: Normal steady-state operation
+# Demonstrates a scenario where signal values remain within normal bounds.
+# No mode transitions are expected (engine stays in initial mode).
+
+scenario_id: SCENARIO-NORMAL-001
+title: Normal Steady-State Operation
+description: >
+  Simulates a nominal operating condition where N2 speed and oil pressure
+  remain within normal bounds. No guard conditions should trigger.
+baseline_scope: demo-scale
+initial_mode_id: MODE-0001
+version: "1.0.0"
+tags:
+  - normal
+  - steady-state
+  - regression
+
+ticks:
+  - tick_id: 1
+    signal_updates:
+      IFACE-0001.n2_speed: 85.0
+    notes: "Initial N2 speed within normal range"
+
+  - tick_id: 2
+    signal_updates:
+      IFACE-0001.n2_speed: 87.5
+    notes: "Slight increase, still nominal"
+
+  - tick_id: 3
+    signal_updates:
+      IFACE-0001.n2_speed: 86.0
+    notes: "Stabilized at cruise N2"

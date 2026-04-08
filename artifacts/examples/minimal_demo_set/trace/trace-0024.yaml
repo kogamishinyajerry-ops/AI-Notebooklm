@@ -1,0 +1,9 @@
+id: "TRACE-0024"
+source_id: "TRANS-0002"
+target_id: "MODE-0001"
+link_type: "exits"
+rationale: "Emergency transition exits normal mode"
+confidence: 1.0
+review_status: "frozen"
+created_at: "2026-04-05T12:00:00Z"
+notes: ""

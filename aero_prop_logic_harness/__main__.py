@@ -1,0 +1,6 @@
+"""Main entry point for APLH."""
+
+from aero_prop_logic_harness.cli import app
+
+if __name__ == "__main__":
+    app()

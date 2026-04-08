@@ -1,0 +1,55 @@
+run_id: RUN-CD4CA54F7ADC
+scenario_id: SCENARIO-RICHER-DELTA-001
+evaluator_mode: richer
+records:
+  - tick_id: 1
+    applied_signals:
+      IFACE-0001.N1_Speed: 3000.0
+    mode_before: MODE-0001
+    candidates_considered:
+      - TRANS-0001
+      - TRANS-0002
+    transition_selected:
+    actions_emitted: []
+    mode_after: MODE-0001
+    block_reason:
+    run_id: RUN-CD4CA54F7ADC
+    scenario_id: SCENARIO-RICHER-DELTA-001
+  - tick_id: 2
+    applied_signals:
+      IFACE-0001.N1_Speed: 3050.0
+    mode_before: MODE-0001
+    candidates_considered:
+      - TRANS-0001
+      - TRANS-0002
+    transition_selected:
+    actions_emitted: []
+    mode_after: MODE-0001
+    block_reason:
+    run_id: RUN-CD4CA54F7ADC
+    scenario_id: SCENARIO-RICHER-DELTA-001
+  - tick_id: 3
+    applied_signals:
+      IFACE-0001.N1_Speed: 3600.0
+    mode_before: MODE-0001
+    candidates_considered:
+      - TRANS-0001
+      - TRANS-0002
+    transition_selected: TRANS-0001
+    actions_emitted: []
+    mode_after: MODE-0002
+    block_reason:
+    run_id: RUN-CD4CA54F7ADC
+    scenario_id: SCENARIO-RICHER-DELTA-001
+  - tick_id: 4
+    applied_signals:
+      IFACE-0001.N1_Speed: 3400.0
+    mode_before: MODE-0002
+    candidates_considered:
+      - TRANS-0003
+    transition_selected: TRANS-0003
+    actions_emitted: []
+    mode_after: MODE-0001
+    block_reason:
+    run_id: RUN-CD4CA54F7ADC
+    scenario_id: SCENARIO-RICHER-DELTA-001

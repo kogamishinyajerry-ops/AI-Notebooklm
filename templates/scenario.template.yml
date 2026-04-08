@@ -1,0 +1,40 @@
+# APLH Scenario Template (Phase 3-2)
+#
+# Usage:
+#   1. Copy this file to {baseline}/scenarios/{name}.yml
+#   2. Fill in all required fields (marked REQUIRED below)
+#   3. Run: python -m aero_prop_logic_harness validate-scenario \
+#           --dir {baseline} --scenario {path-to-this-file}
+#   4. Execute: python -m aero_prop_logic_harness run-scenario \
+#           --dir {baseline} --scenario {path-to-this-file}
+#
+# Notes:
+#   - scenario_id must be unique within the baseline
+#   - initial_mode_id must exist in the baseline's ModeGraph
+#   - signal_updates keys must match IFACE-NNNN.signal_name format
+#   - tick_id values must be strictly increasing integers
+#   - baseline_scope must be "demo-scale" (formal execution not supported)
+
+scenario_id: "SCENARIO-XXXX"          # REQUIRED: unique scenario identifier
+title: ""                              # REQUIRED: human-readable title
+description: ""                        # optional: detailed description
+baseline_scope: "demo-scale"           # REQUIRED: must be "demo-scale"
+initial_mode_id: "MODE-XXXX"          # REQUIRED: starting mode ID
+version: "1.0.0"                       # optional: scenario version
+tags: []                               # optional: classification tags
+
+# Optional regression expectations (Phase 3-2)
+# expected_final_mode: "MODE-XXXX"    # predicted end-state mode
+# expected_transitions:                # predicted transitions triggered
+#   - "TRANS-XXXX"
+
+ticks:
+  - tick_id: 1
+    signal_updates:
+      IFACE-XXXX.signal_name: 0.0     # signal reference : value
+    notes: ""                           # optional: describe this tick's intent
+
+  # - tick_id: 2
+  #   signal_updates:
+  #     IFACE-XXXX.another_signal: 100.0
+  #   notes: ""

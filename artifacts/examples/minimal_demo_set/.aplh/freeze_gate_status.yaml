@@ -1,0 +1,7 @@
+baseline_scope: "demo-scale"
+boundary_frozen: true
+schema_frozen: true
+trace_gate_passed: true
+baseline_review_complete: true
+signed_off_by: "Demo Engineer"
+signed_off_at: "2026-04-03T12:00:00Z"

@@ -1,0 +1,18 @@
+id: "TERM-0001"
+artifact_type: "glossary_entry"
+version: "0.1.0"
+status: "active"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: "manual"
+  confidence: 1.0
+  reviewed_by: "Eve"
+  review_date: "2026-04-02T12:00:00Z"
+review_status: "frozen"
+tags: []
+term: "FADEC"
+canonical_definition: "Full Authority Digital Engine Control"
+aliases: []
+disallowed_or_ambiguous_usages: []
+owner_domain: "arch"

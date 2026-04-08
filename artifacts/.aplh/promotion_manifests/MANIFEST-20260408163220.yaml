@@ -1,0 +1,45 @@
+manifest_id: MANIFEST-20260408163220
+created_at: 2026-04-08T16:32:20.287140+00:00Z
+created_by: CLI
+formal_baseline_dir: artifacts
+source_baseline_dir: artifacts
+candidates:
+- candidate_id: PC-df84c0
+  status: failed
+  source_path: artifacts/modes/mode-0001.yaml
+  target_path: artifacts/modes/mode-0001.yaml
+- candidate_id: PC-654fd5
+  status: failed
+  source_path: artifacts/modes/mode-0002.yaml
+  target_path: artifacts/modes/mode-0002.yaml
+- candidate_id: PC-d2014f
+  status: failed
+  source_path: artifacts/modes/mode-0003.yaml
+  target_path: artifacts/modes/mode-0003.yaml
+- candidate_id: PC-8c297c
+  status: failed
+  source_path: artifacts/transitions/trans-0001.yaml
+  target_path: artifacts/transitions/trans-0001.yaml
+- candidate_id: PC-790788
+  status: failed
+  source_path: artifacts/transitions/trans-0003.yaml
+  target_path: artifacts/transitions/trans-0003.yaml
+- candidate_id: PC-d62a69
+  status: failed
+  source_path: artifacts/transitions/trans-0002.yaml
+  target_path: artifacts/transitions/trans-0002.yaml
+- candidate_id: PC-6db4dd
+  status: failed
+  source_path: artifacts/guards/guard-0001.yaml
+  target_path: artifacts/guards/guard-0001.yaml
+- candidate_id: PC-694512
+  status: failed
+  source_path: artifacts/guards/guard-0003.yaml
+  target_path: artifacts/guards/guard-0003.yaml
+- candidate_id: PC-75a58b
+  status: failed
+  source_path: artifacts/guards/guard-0002.yaml
+  target_path: artifacts/guards/guard-0002.yaml
+overall_status: blocked
+promotion_decision: pending_review
+lifecycle_status: pending

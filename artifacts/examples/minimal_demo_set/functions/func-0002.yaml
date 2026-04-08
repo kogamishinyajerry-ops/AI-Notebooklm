@@ -1,0 +1,23 @@
+id: "FUNC-0002"
+artifact_type: "function"
+version: "0.1.0"
+status: "active"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: "manual"
+  confidence: 1.0
+  reviewed_by: "Bob"
+  review_date: "2026-04-02T12:00:00Z"
+review_status: "frozen"
+tags: ["synthesis"]
+name: "Synthesize N1"
+purpose: "Calculate virtual N1 from N2"
+inputs: ["N2_Signal"]
+outputs: ["Synth_N1"]
+preconditions: []
+postconditions: []
+dependent_requirements: ["REQ-0002"]
+related_interfaces: []
+abnormal_considerations: ["ABN-0001"]
+owner_domain: "control"

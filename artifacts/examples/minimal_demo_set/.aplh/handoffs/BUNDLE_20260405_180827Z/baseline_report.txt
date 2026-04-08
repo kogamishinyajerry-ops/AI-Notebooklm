@@ -1,0 +1,18 @@
+=== APLH Baseline Validation Report ===
+Target: /Users/Zhuanz/20260402 AI ControlLogicMaster/artifacts/examples/minimal_demo_set
+Timestamp: 2026-04-05T18:08:27.788905+00:00Z
+========================================
+
+--- [1] Schema Validation ---
+✅ No schema validation issues found.
+
+--- [2] Trace Consistency ---
+✅ No trace validation issues found.
+✅ No consistency issues found.
+
+--- [3] Mode Validator ---
+Mode Validator: No issues found.
+
+--- [4] Coverage Validator ---
+Coverage Validator: 1 blocking + 0 manual-review + 0 advisory issues:
+  - [abn_not_covered] ABN-0001: Abnormal ABN-0001 is not referenced by any MODE.related_abnormals or TRANS.related_abnormals.

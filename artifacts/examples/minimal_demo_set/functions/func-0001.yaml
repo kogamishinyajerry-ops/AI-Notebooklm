@@ -1,0 +1,24 @@
+id: "FUNC-0001"
+artifact_type: "function"
+version: "0.1.0"
+status: "active"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: "manual"
+  confidence: 1.0
+  reviewed_by: "Bob"
+  review_date: "2026-04-02T12:00:00Z"
+review_status: "frozen"
+tags: ["protection"]
+name: "Detect Overspeed"
+purpose: "Detect N1 overspeed"
+inputs: ["N1_Signal"]
+outputs: ["Overspeed_Flag"]
+preconditions: []
+postconditions: []
+dependent_requirements: ["REQ-0001"]
+related_interfaces: ["IFACE-0001", "IFACE-0002"]
+abnormal_considerations: []
+owner_domain: "safety"
+related_modes: ["MODE-0001"]

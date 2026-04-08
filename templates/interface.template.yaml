@@ -1,0 +1,36 @@
+# Interface Template
+# ID: IFACE-xxxx (must match filename)
+id: "IFACE-"
+artifact_type: "interface"
+version: "0.1.0"
+status: "draft"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: ""
+  confidence: 0.8
+  reviewed_by: ""
+  review_date: ""
+review_status: "draft"
+tags: []
+created_at: "YYYY-MM-DDThh:mm:ss"
+updated_at: "YYYY-MM-DDThh:mm:ss"
+notes: ""
+
+# Interface-specific fields
+name: ""
+interface_type: "" # data_bus | discrete | analog | software_api
+producer: ""
+consumer: ""
+signals:
+  - name: ""
+    direction: "" # in | out | bidirectional
+    data_type: ""
+    unit: ""
+    valid_range: ""
+    description: ""
+timing_semantics: ""
+update_rate: ""
+fault_flags: []
+degradation_behavior: ""
+related_requirements: [] # REQ-xxxx

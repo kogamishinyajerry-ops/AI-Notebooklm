@@ -1,0 +1,28 @@
+# Python caches and local virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments
+.venv/
+.venv_new/
+.env
+.env.*
+
+# Build and packaging outputs
+build/
+dist/
+*.egg-info/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+
+# Local tool scratch space
+.codex/

@@ -1,0 +1,30 @@
+id: "IFACE-0002"
+artifact_type: "interface"
+version: "0.1.0"
+status: "active"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: "manual"
+  confidence: 1.0
+  reviewed_by: "Charlie"
+  review_date: "2026-04-02T12:00:00Z"
+review_status: "frozen"
+tags: ["actuator"]
+name: "FMV"
+interface_type: "analog"
+producer: "FADEC"
+consumer: "FMV"
+signals:
+  - name: "Fuel_Flow"
+    direction: "out"
+    data_type: "ma"
+    unit: "mA"
+    valid_range: "0-100"
+    description: "Fuel valve position command"
+timing_semantics: "continuous"
+update_rate: "continuous"
+fault_flags: []
+degradation_behavior: "Fails in place"
+related_requirements: ["REQ-0001"]
+related_functions: ["FUNC-0001"]

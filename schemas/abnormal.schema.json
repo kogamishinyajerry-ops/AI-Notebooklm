@@ -1,0 +1,279 @@
+{
+  "$defs": {
+    "ArtifactType": {
+      "description": "Valid artifact type identifiers.",
+      "enum": [
+        "requirement",
+        "function",
+        "interface",
+        "abnormal",
+        "glossary_entry",
+        "trace_link",
+        "mode",
+        "transition",
+        "guard"
+      ],
+      "title": "ArtifactType",
+      "type": "string"
+    },
+    "LifecycleStatus": {
+      "description": "Artifact lifecycle status.",
+      "enum": [
+        "draft",
+        "active",
+        "deprecated",
+        "withdrawn"
+      ],
+      "title": "LifecycleStatus",
+      "type": "string"
+    },
+    "Provenance": {
+      "description": "Tracks how artifact content was produced and its review state.\n\nThis is central to APLH's knowledge governance: every piece of content\nmust declare its origin and confidence level so that reviewers can\nassess trustworthiness.",
+      "properties": {
+        "source_type": {
+          "$ref": "#/$defs/ProvenanceSourceType",
+          "description": "How this content was produced"
+        },
+        "source_refs": {
+          "description": "List of source document references (document IDs, URLs, etc.)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Refs",
+          "type": "array"
+        },
+        "method": {
+          "default": "",
+          "description": "Description of the production method (e.g., 'extracted by Gemini 3.1 Pro from CCAR-33 §33.28')",
+          "title": "Method",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 0.5,
+          "description": "Confidence level 0.0–1.0",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "reviewed_by": {
+          "default": "",
+          "description": "Reviewer identity (empty if not yet reviewed)",
+          "title": "Reviewed By",
+          "type": "string"
+        },
+        "review_date": {
+          "default": "",
+          "description": "ISO date of review (empty if not yet reviewed)",
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[\\+\\-][0-9]{2}:[0-9]{2})?)?)$",
+          "title": "Review Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_type"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "ProvenanceSourceType": {
+      "description": "How the artifact content was produced.",
+      "enum": [
+        "human_authored",
+        "ai_extracted",
+        "ai_inferred",
+        "mixed",
+        "reference"
+      ],
+      "title": "ProvenanceSourceType",
+      "type": "string"
+    },
+    "ReviewStatus": {
+      "description": "Review workflow status.",
+      "enum": [
+        "draft",
+        "in_review",
+        "reviewed",
+        "frozen",
+        "rejected"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Abnormal/failure condition description for propulsion control logic.",
+  "properties": {
+    "id": {
+      "description": "Unique artifact ID (e.g., REQ-0001)",
+      "title": "Id",
+      "type": "string"
+    },
+    "artifact_type": {
+      "$ref": "#/$defs/ArtifactType",
+      "default": "abnormal",
+      "description": "Must be 'abnormal'"
+    },
+    "version": {
+      "default": "0.1.0",
+      "description": "Semantic version of this artifact",
+      "title": "Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/LifecycleStatus",
+      "default": "draft",
+      "description": "Lifecycle status"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance",
+      "description": "Content provenance and confidence metadata"
+    },
+    "review_status": {
+      "$ref": "#/$defs/ReviewStatus",
+      "default": "draft",
+      "description": "Review workflow status"
+    },
+    "tags": {
+      "description": "Free-form tags for filtering/grouping",
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "created_at": {
+      "description": "ISO 8601 creation timestamp",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[\\+\\-][0-9]{2}:[0-9]{2})?$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "description": "ISO 8601 last-updated timestamp",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[\\+\\-][0-9]{2}:[0-9]{2})?$",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "description": "Free-text notes, assumptions, open questions",
+      "title": "Notes",
+      "type": "string"
+    },
+    "name": {
+      "description": "Abnormal condition name",
+      "title": "Name",
+      "type": "string"
+    },
+    "abnormal_type": {
+      "default": "",
+      "description": "Type classification (e.g., 'sensor_failure', 'actuator_failure', 'logic_fault', 'external_event')",
+      "title": "Abnormal Type",
+      "type": "string"
+    },
+    "detection_logic": {
+      "default": "",
+      "description": "How this abnormal condition is detected (logic description, not code)",
+      "title": "Detection Logic",
+      "type": "string"
+    },
+    "entry_conditions": {
+      "description": "Conditions under which this abnormal is declared active",
+      "items": {
+        "type": "string"
+      },
+      "title": "Entry Conditions",
+      "type": "array"
+    },
+    "system_effect": {
+      "default": "",
+      "description": "Effect on the propulsion system if this abnormal occurs",
+      "title": "System Effect",
+      "type": "string"
+    },
+    "crew_effect": {
+      "default": "",
+      "description": "Effect visible to the flight crew (alerts, annunciations, performance changes)",
+      "title": "Crew Effect",
+      "type": "string"
+    },
+    "maintenance_effect": {
+      "default": "",
+      "description": "Maintenance implications (dispatch restrictions, inspection requirements)",
+      "title": "Maintenance Effect",
+      "type": "string"
+    },
+    "mitigation": {
+      "default": "",
+      "description": "System-level mitigation or protective action",
+      "title": "Mitigation",
+      "type": "string"
+    },
+    "fallback_mode": {
+      "default": "",
+      "description": "Degraded operating mode entered upon detection",
+      "title": "Fallback Mode",
+      "type": "string"
+    },
+    "recovery_conditions": {
+      "description": "Conditions under which the system can exit this abnormal state",
+      "items": {
+        "type": "string"
+      },
+      "title": "Recovery Conditions",
+      "type": "array"
+    },
+    "related_requirements": {
+      "description": "REQ-xxxx IDs related to this abnormal condition",
+      "items": {
+        "type": "string"
+      },
+      "title": "Related Requirements",
+      "type": "array"
+    },
+    "related_functions": {
+      "description": "FUNC-xxxx IDs of functions involved in handling this abnormal",
+      "items": {
+        "type": "string"
+      },
+      "title": "Related Functions",
+      "type": "array"
+    },
+    "related_interfaces": {
+      "description": "IFACE-xxxx IDs of interfaces affected by this abnormal",
+      "items": {
+        "type": "string"
+      },
+      "title": "Related Interfaces",
+      "type": "array"
+    },
+    "severity_hint": {
+      "default": "",
+      "description": "Severity guidance (e.g., 'minor', 'major', 'hazardous', 'catastrophic'). Note: This is a working classification, not a formal safety assessment.",
+      "title": "Severity Hint",
+      "type": "string"
+    },
+    "related_modes": {
+      "description": "MODE-xxxx IDs of modes affected by this abnormal condition",
+      "items": {
+        "type": "string"
+      },
+      "title": "Related Modes",
+      "type": "array"
+    },
+    "related_transitions": {
+      "description": "TRANS-xxxx IDs of transitions triggered by this abnormal condition",
+      "items": {
+        "type": "string"
+      },
+      "title": "Related Transitions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "name"
+  ],
+  "title": "Abnormal",
+  "type": "object"
+}

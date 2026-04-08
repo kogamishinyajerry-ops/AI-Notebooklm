@@ -1,0 +1,27 @@
+id: "REQ-0001"
+artifact_type: "requirement"
+version: "0.1.0"
+status: "active"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: "manual"
+  confidence: 1.0
+  reviewed_by: "Alice"
+  review_date: "2026-04-02T12:00:00Z"
+review_status: "frozen"
+tags: ["safety"]
+title: "Overspeed Protection"
+description: "The engine control system must provide an overspeed protection function."
+category: "protection"
+lifecycle_phase: "all"
+triggers: ["N1 > 105%"]
+conditions: []
+expected_response: "Cut off fuel flow."
+verification_observables: ["Fuel Valve"]
+safety_relevance: true
+linked_functions: ["FUNC-0001"]
+linked_interfaces: ["IFACE-0002"]
+linked_abnormals: []
+linked_modes: ["MODE-0001"]
+linked_transitions: ["TRANS-0002"]

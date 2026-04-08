@@ -1,0 +1,31 @@
+# Transition Template
+# ID: TRANS-xxxx (must match filename)
+id: "TRANS-"
+artifact_type: "transition"
+version: "0.1.0"
+status: "draft"
+provenance:
+  source_type: "human_authored" # human_authored | ai_extracted | ai_inferred | mixed | reference
+  source_refs: []
+  method: ""
+  confidence: 0.8
+  reviewed_by: ""
+  review_date: ""
+review_status: "draft"
+tags: []
+created_at: "YYYY-MM-DDThh:mm:ss"
+updated_at: "YYYY-MM-DDThh:mm:ss"
+notes: ""
+
+# Transition-specific fields
+name: ""
+description: ""
+source_mode: ""        # MODE-xxxx
+target_mode: ""        # MODE-xxxx
+trigger_signal: ""     # Convenience label (field-only per §4.6)
+guard: ""              # GUARD-xxxx (empty = unconditional)
+priority: 100          # Arbitration priority (lower = higher)
+actions: []            # FUNC-xxxx (field-only, NOT in consistency scope per §4.8)
+is_reversible: true
+related_requirements: []  # REQ-xxxx
+related_abnormals: []     # ABN-xxxx

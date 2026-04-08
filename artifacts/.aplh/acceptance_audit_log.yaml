@@ -1,0 +1,12 @@
+- timestamp: "2026-04-08T12:01:23Z"
+  actor: "Authorized Manual Review Intake Actor (APLH-PostPhase7-Manual-Review-Intake-Action)"
+  action: "manual_review_intake"
+  state_before: "ready_for_freeze_review"
+  state_after: "accepted_for_review"
+  evidence_refs:
+    - "docs/POST_PHASE7_MANUAL_REVIEW_INTAKE_REQUEST.md"
+    - "docs/POST_PHASE7_MANUAL_REVIEW_INTAKE_REQUEST_REVIEW_REPORT.md"
+    - "docs/POST_PHASE7_FREEZE_REVIEW_INTAKE_GOVERNANCE_PLANNING_REVIEW_REPORT.md"
+    - "docs/POST_PHASE7_CORRECTED_INVENTORY_CONTROLLED_POPULATION_REVIEW_REPORT.md"
+    - "artifacts/.aplh/freeze_readiness_report.yaml"
+  notes: "Manual intake only. Not freeze approval."

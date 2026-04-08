@@ -1,0 +1,45 @@
+# Demo scenario: Sustained overspeed protection (SUSTAINED_GT operator)
+# Exercises GUARD-0002 (sustained_gt, 3 ticks) on TRANS-0002 (normal → emergency).
+# Requires RicherEvaluator for SUSTAINED_GT support.
+
+scenario_id: SCENARIO-RICHER-SUSTAINED-001
+title: Sustained Overspeed — Emergency Fuel Cutoff
+description: >
+  Simulates an N1 overspeed event sustained for 3 consecutive ticks above
+  5250 Hz. GUARD-0002 uses SUSTAINED_GT with duration_ticks=3.
+  Expected: MODE-0001 → MODE-0003 via TRANS-0002 at tick 4
+  (first tick where 3-tick window is fully above threshold).
+baseline_scope: demo-scale
+initial_mode_id: MODE-0001
+version: "1.0.0"
+tags:
+  - richer
+  - sustained_gt
+  - emergency
+  - overspeed
+  - phase3-3
+
+expected_final_mode: MODE-0003
+expected_transitions:
+  - TRANS-0002
+
+ticks:
+  - tick_id: 1
+    signal_updates:
+      IFACE-0001.N1_Speed: 4800.0
+    notes: "Normal N1 — below overspeed threshold"
+
+  - tick_id: 2
+    signal_updates:
+      IFACE-0001.N1_Speed: 5300.0
+    notes: "Above 5250 Hz — 1st tick of sustained window"
+
+  - tick_id: 3
+    signal_updates:
+      IFACE-0001.N1_Speed: 5400.0
+    notes: "Above threshold — 2nd tick of sustained window"
+
+  - tick_id: 4
+    signal_updates:
+      IFACE-0001.N1_Speed: 5500.0
+    notes: "Above threshold — 3rd tick completes window, emergency triggered"

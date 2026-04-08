@@ -1,0 +1,8 @@
+scenario_id: SCENARIO-DEMO
+title: Minimal Demo Scenario
+baseline_scope: demo-scale
+initial_mode_id: MODE-0001
+ticks:
+  - tick_id: 1
+    signal_updates:
+      IFACE-0001.N1_Speed: 15

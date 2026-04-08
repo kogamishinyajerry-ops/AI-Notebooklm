@@ -1,0 +1,33 @@
+id: "IFACE-0001"
+artifact_type: "interface"
+version: "0.1.0"
+status: "active"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: "manual"
+  confidence: 1.0
+  reviewed_by: "Charlie"
+  review_date: "2026-04-02T12:00:00Z"
+review_status: "frozen"
+tags: ["sensor"]
+name: "N1 Sensor"
+interface_type: "analog"
+producer: "N1_Probe"
+consumer: "FADEC"
+signals:
+  - name: "N1_Speed"
+    direction: "in"
+    data_type: "hz"
+    unit: "Hz"
+    valid_range: "0-5000"
+    description: "N1 Speed"
+timing_semantics: "continuous"
+update_rate: "continuous"
+fault_flags: ["Open_Circuit"]
+degradation_behavior: "Zero reading"
+related_requirements: ["REQ-0002"]
+related_functions: ["FUNC-0001"]
+related_abnormals: ["ABN-0001"]
+related_modes: ["MODE-0001", "MODE-0003"]
+related_guards: ["GUARD-0001", "GUARD-0002", "GUARD-0003"]

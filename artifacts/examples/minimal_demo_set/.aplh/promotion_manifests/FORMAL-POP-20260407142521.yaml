@@ -1,0 +1,57 @@
+manifest_id: FORMAL-POP-20260407142521
+created_at: '2026-04-07T14:25:21.715659+00:00'
+created_by: Phase7FormalPopulationExecutor
+formal_baseline_dir: /Users/Zhuanz/20260402 AI ControlLogicMaster/artifacts
+source_baseline_dir: /Users/Zhuanz/20260402 AI 
+  ControlLogicMaster/artifacts/examples/minimal_demo_set
+candidates:
+- candidate_id: PC-MODE-0001
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/modes/mode-0001.yaml
+  target_path: artifacts/modes/mode-0001.yaml
+- candidate_id: PC-MODE-0002
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/modes/mode-0002.yaml
+  target_path: artifacts/modes/mode-0002.yaml
+- candidate_id: PC-MODE-0003
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/modes/mode-0003.yaml
+  target_path: artifacts/modes/mode-0003.yaml
+- candidate_id: PC-TRANS-0001
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/transitions/trans-0001.yaml
+  target_path: artifacts/transitions/trans-0001.yaml
+- candidate_id: PC-TRANS-0002
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/transitions/trans-0002.yaml
+  target_path: artifacts/transitions/trans-0002.yaml
+- candidate_id: PC-TRANS-0003
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/transitions/trans-0003.yaml
+  target_path: artifacts/transitions/trans-0003.yaml
+- candidate_id: PC-GUARD-0001
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/guards/guard-0001.yaml
+  target_path: artifacts/guards/guard-0001.yaml
+- candidate_id: PC-GUARD-0002
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/guards/guard-0002.yaml
+  target_path: artifacts/guards/guard-0002.yaml
+- candidate_id: PC-GUARD-0003
+  status: passed
+  source_path: /Users/Zhuanz/20260402 AI 
+    ControlLogicMaster/artifacts/examples/minimal_demo_set/guards/guard-0003.yaml
+  target_path: artifacts/guards/guard-0003.yaml
+overall_status: ready
+promotion_decision: approved
+decision_by: Codex Independent Approval Authority
+decision_at: '2026-04-07T14:02:34Z'
+lifecycle_status: promoted

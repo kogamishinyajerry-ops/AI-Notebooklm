@@ -1,0 +1,28 @@
+id: "ABN-0001"
+artifact_type: "abnormal"
+version: "0.1.0"
+status: "active"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: "manual"
+  confidence: 1.0
+  reviewed_by: "Dave"
+  review_date: "2026-04-02T12:00:00Z"
+review_status: "frozen"
+tags: ["sensor_fault"]
+name: "N1 Sensor Loss"
+abnormal_type: "sensor_failure"
+detection_logic: "Open circuit on N1"
+entry_conditions: ["N1_Speed == 0 Hz"]
+system_effect: "Loss of primary thrust parameter"
+crew_effect: "EICAS N1"
+maintenance_effect: "Fix before next flight"
+mitigation: "Switch to N2 mode"
+fallback_mode: "N2 Governing"
+recovery_conditions: []
+related_requirements: ["REQ-0002"]
+related_functions: ["FUNC-0002", "FUNC-0003"]
+related_interfaces: ["IFACE-0001"]
+related_modes: ["MODE-0002"]
+severity_hint: "major"

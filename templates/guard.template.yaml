@@ -1,0 +1,50 @@
+# Guard Template
+# ID: GUARD-xxxx (must match filename)
+id: "GUARD-"
+artifact_type: "guard"
+version: "0.1.0"
+status: "draft"
+provenance:
+  source_type: "human_authored" # human_authored | ai_extracted | ai_inferred | mixed | reference
+  source_refs: []
+  method: ""
+  confidence: 0.8
+  reviewed_by: ""
+  review_date: ""
+review_status: "draft"
+tags: []
+created_at: "YYYY-MM-DDThh:mm:ss"
+updated_at: "YYYY-MM-DDThh:mm:ss"
+notes: ""
+
+# Guard-specific fields
+name: ""
+description: ""  # Human-readable summary, NOT the machine-checkable authority (§4.7)
+
+# THE machine-checkable authority (§4.7, §4.9)
+predicate:
+  predicate_type: "atomic"
+  operator: "gt"              # gt | ge | lt | le | eq | ne | bool_true | bool_false
+  signal_ref: "IFACE-0001.signal_name"
+  threshold: 0.0
+  unit: ""
+
+# For compound predicates (AND/OR/NOT):
+# predicate:
+#   predicate_type: "compound"
+#   combinator: "and"   # and | or | not
+#   operands:
+#     - predicate_type: "atomic"
+#       operator: "gt"
+#       signal_ref: "IFACE-0001.signal_a"
+#       threshold: 95.0
+#     - predicate_type: "atomic"
+#       operator: "lt"
+#       signal_ref: "IFACE-0001.signal_b"
+#       threshold: 20.0
+
+input_signals: []  # List of {interface, signal, unit} objects
+related_interfaces: []      # IFACE-xxxx
+related_requirements: []    # REQ-xxxx
+related_abnormals: []       # ABN-xxxx
+used_by_transitions: []     # TRANS-xxxx (§2.7 reciprocal)

@@ -1,0 +1,33 @@
+# Demo scenario: Emergency shutdown path
+# Demonstrates a scenario where fire detection triggers an
+# immediate transition to emergency/shutdown mode.
+
+scenario_id: SCENARIO-EMERGENCY-001
+title: Emergency Shutdown via Fire Detection
+description: >
+  Simulates a fire detection event that would trigger an emergency
+  shutdown sequence. The boolean guard on the fire_detected signal
+  (if present) transitions from normal to emergency mode.
+baseline_scope: demo-scale
+initial_mode_id: MODE-0001
+version: "1.0.0"
+tags:
+  - emergency
+  - fire-detection
+  - shutdown
+
+ticks:
+  - tick_id: 1
+    signal_updates:
+      IFACE-0002.fire_detected: false
+    notes: "No fire at startup"
+
+  - tick_id: 2
+    signal_updates:
+      IFACE-0002.fire_detected: true
+    notes: "Fire detected — emergency transition expected"
+
+  - tick_id: 3
+    signal_updates:
+      IFACE-0002.fire_detected: true
+    notes: "Fire confirmed — emergency mode active"

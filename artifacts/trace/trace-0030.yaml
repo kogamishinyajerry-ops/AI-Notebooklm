@@ -1,0 +1,9 @@
+id: "TRACE-0030"
+source_id: "ABN-0001"
+target_id: "MODE-0002"
+link_type: "triggers_mode"
+rationale: "N1 sensor loss drives degraded N1 governing fallback mode"
+confidence: 1.0
+review_status: "frozen"
+created_at: "2026-04-07T12:30:00Z"
+notes: ""

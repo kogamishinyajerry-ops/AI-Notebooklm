@@ -1,0 +1,6 @@
+- timestamp: '2026-04-07T14:25:21.718815+00:00'
+  manifest_id: FORMAL-POP-20260407142521
+  executor: Phase7FormalPopulationExecutor
+  files_promoted: 9
+  files_failed: 0
+  status: success

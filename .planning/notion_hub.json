@@ -1,0 +1,107 @@
+{
+  "repo_root": "/Users/Zhuanz/20260402 AI ControlLogicMaster",
+  "root_page_id": "33cc6894-2bed-8188-8fda-d2c48099d187",
+  "root_page_url": "https://www.notion.so/AI-ControlLogicMaster-33cc68942bed81888fdad2c48099d187",
+  "supporting_pages": {
+    "how_to_use": {
+      "page_id": "33cc6894-2bed-81da-b49e-f61870bb421e",
+      "url": "https://www.notion.so/33cc68942bed81dab49ef61870bb421e"
+    },
+    "gsd_playbook": {
+      "page_id": "33cc6894-2bed-815f-95b0-f1d1cba7557f",
+      "url": "https://www.notion.so/33cc68942bed815f95b0f1d1cba7557f"
+    }
+  },
+  "records": {
+    "project": {
+      "page_id": "33cc6894-2bed-8193-9d1e-fabde274d480",
+      "url": "https://www.notion.so/AI-ControlLogicMaster-33cc68942bed81939d1efabde274d480"
+    },
+    "active_work_item": {
+      "page_id": "33cc6894-2bed-819b-b2ff-eab2e94b2044",
+      "url": "https://www.notion.so/Draft-final-freeze-signoff-checklist-completion-request-package-33cc68942bed819bb2ffeab2e94b2044"
+    },
+    "current_operator_brief": {
+      "page_id": "33cc6894-2bed-8199-8842-c8385ff81f6b",
+      "url": "https://www.notion.so/Current-Operator-Brief-33cc68942bed81998842c8385ff81f6b"
+    }
+  },
+  "databases": {
+    "projects": {
+      "title": "Projects",
+      "database_id": "e072f440-4b46-46af-8724-99615af1cf63",
+      "database_url": "https://www.notion.so/e072f4404b4646af872499615af1cf63",
+      "data_source_id": "ffdbfa06-0b97-4e0e-aee7-d18aba7de6f8"
+    },
+    "phases": {
+      "title": "Phases",
+      "database_id": "d89ff75c-760c-4d55-b8e9-894c5b9ee726",
+      "database_url": "https://www.notion.so/d89ff75c760c4d55b8e9894c5b9ee726",
+      "data_source_id": "1b882f13-6b2b-4f28-958b-ed3d401e93e6"
+    },
+    "work_items": {
+      "title": "Work Items",
+      "database_id": "51fc12ca-f183-4f16-b44d-e76b54119301",
+      "database_url": "https://www.notion.so/51fc12caf1834f16b44de76b54119301",
+      "data_source_id": "f3cdb407-be79-42fe-b002-f09fb2c6b6d1"
+    },
+    "context_packs": {
+      "title": "Context Packs",
+      "database_id": "33029586-f87b-4bcb-b79c-1224113318b2",
+      "database_url": "https://www.notion.so/33029586f87b4bcbb79c1224113318b2",
+      "data_source_id": "359d39f8-baf8-4b4f-b952-1946b38e3ea8"
+    },
+    "reviews": {
+      "title": "Reviews & Decisions",
+      "database_id": "ba4291ec-d97f-43a4-9e94-860384ed8aef",
+      "database_url": "https://www.notion.so/ba4291ecd97f43a49e94860384ed8aef",
+      "data_source_id": "a6e2609a-a3f6-4075-8c4c-af8ce214c1c8"
+    },
+    "session_briefs": {
+      "title": "Session Briefs",
+      "database_id": "5d2647d8-a0cf-41d5-828c-b683e9b8f9fa",
+      "database_url": "https://www.notion.so/5d2647d8a0cf41d5828cb683e9b8f9fa",
+      "data_source_id": "43c211bc-b9a8-4b0c-9221-7b723c055f8f"
+    },
+    "artifact_index": {
+      "title": "Artifact Index",
+      "database_id": "f5df07a3-22e4-40a6-a6fc-054e46167f31",
+      "database_url": "https://www.notion.so/f5df07a322e440a6a6fc054e46167f31",
+      "data_source_id": "fffa1508-da01-426a-8cf9-0e9d3755cb10"
+    }
+  },
+  "root_meta": {
+    "mode": "child-page",
+    "parent_page_id": "33cc6894-2bed-805f-98fc-c452ad97542e",
+    "reused": true
+  },
+  "last_synced": "2026-04-09",
+  "gsd": {
+    "databases": {
+      "gsd_phases": {
+        "title": "GSD Phases",
+        "database_id": "58504479-ad92-408a-901c-ced3e5c155e7",
+        "database_url": "https://www.notion.so/58504479ad92408a901cced3e5c155e7",
+        "data_source_id": "1593c397-2da5-49d6-a590-9efafa93aab1"
+      },
+      "gsd_plans": {
+        "title": "GSD Plans",
+        "database_id": "f52db9cf-9353-480e-96c7-1d3643af0a8c",
+        "database_url": "https://www.notion.so/f52db9cf9353480e96c71d3643af0a8c",
+        "data_source_id": "4b26ef32-9aeb-4871-a719-4805b5e1d1f9"
+      },
+      "review_gates": {
+        "title": "Review Gates",
+        "database_id": "62e0b366-a61b-44f4-bf48-be777392b7eb",
+        "database_url": "https://www.notion.so/62e0b366a61b44f4bf48be777392b7eb",
+        "data_source_id": "3be82ee5-aec6-40da-9c5c-e3c68871f6ea"
+      },
+      "automation_runs": {
+        "title": "Automation Runs",
+        "database_id": "edde9c45-78ce-4444-bc06-75d10d29b8d6",
+        "database_url": "https://www.notion.so/edde9c4578ce4444bc0675d10d29b8d6",
+        "data_source_id": "8078edcb-7b55-464c-b252-0dc60f0cb178"
+      }
+    }
+  }
+}

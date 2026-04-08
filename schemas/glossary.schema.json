@@ -1,0 +1,211 @@
+{
+  "$defs": {
+    "ArtifactType": {
+      "description": "Valid artifact type identifiers.",
+      "enum": [
+        "requirement",
+        "function",
+        "interface",
+        "abnormal",
+        "glossary_entry",
+        "trace_link",
+        "mode",
+        "transition",
+        "guard"
+      ],
+      "title": "ArtifactType",
+      "type": "string"
+    },
+    "LifecycleStatus": {
+      "description": "Artifact lifecycle status.",
+      "enum": [
+        "draft",
+        "active",
+        "deprecated",
+        "withdrawn"
+      ],
+      "title": "LifecycleStatus",
+      "type": "string"
+    },
+    "Provenance": {
+      "description": "Tracks how artifact content was produced and its review state.\n\nThis is central to APLH's knowledge governance: every piece of content\nmust declare its origin and confidence level so that reviewers can\nassess trustworthiness.",
+      "properties": {
+        "source_type": {
+          "$ref": "#/$defs/ProvenanceSourceType",
+          "description": "How this content was produced"
+        },
+        "source_refs": {
+          "description": "List of source document references (document IDs, URLs, etc.)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Refs",
+          "type": "array"
+        },
+        "method": {
+          "default": "",
+          "description": "Description of the production method (e.g., 'extracted by Gemini 3.1 Pro from CCAR-33 §33.28')",
+          "title": "Method",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 0.5,
+          "description": "Confidence level 0.0–1.0",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "reviewed_by": {
+          "default": "",
+          "description": "Reviewer identity (empty if not yet reviewed)",
+          "title": "Reviewed By",
+          "type": "string"
+        },
+        "review_date": {
+          "default": "",
+          "description": "ISO date of review (empty if not yet reviewed)",
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[\\+\\-][0-9]{2}:[0-9]{2})?)?)$",
+          "title": "Review Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_type"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "ProvenanceSourceType": {
+      "description": "How the artifact content was produced.",
+      "enum": [
+        "human_authored",
+        "ai_extracted",
+        "ai_inferred",
+        "mixed",
+        "reference"
+      ],
+      "title": "ProvenanceSourceType",
+      "type": "string"
+    },
+    "ReviewStatus": {
+      "description": "Review workflow status.",
+      "enum": [
+        "draft",
+        "in_review",
+        "reviewed",
+        "frozen",
+        "rejected"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Controlled terminology entry for propulsion control engineering.",
+  "properties": {
+    "id": {
+      "description": "Unique artifact ID (e.g., REQ-0001)",
+      "title": "Id",
+      "type": "string"
+    },
+    "artifact_type": {
+      "$ref": "#/$defs/ArtifactType",
+      "default": "glossary_entry",
+      "description": "Must be 'glossary_entry'"
+    },
+    "version": {
+      "default": "0.1.0",
+      "description": "Semantic version of this artifact",
+      "title": "Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/LifecycleStatus",
+      "default": "draft",
+      "description": "Lifecycle status"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance",
+      "description": "Content provenance and confidence metadata"
+    },
+    "review_status": {
+      "$ref": "#/$defs/ReviewStatus",
+      "default": "draft",
+      "description": "Review workflow status"
+    },
+    "tags": {
+      "description": "Free-form tags for filtering/grouping",
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "created_at": {
+      "description": "ISO 8601 creation timestamp",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[\\+\\-][0-9]{2}:[0-9]{2})?$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "description": "ISO 8601 last-updated timestamp",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[\\+\\-][0-9]{2}:[0-9]{2})?$",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "description": "Free-text notes, assumptions, open questions",
+      "title": "Notes",
+      "type": "string"
+    },
+    "term": {
+      "description": "The canonical term being defined",
+      "title": "Term",
+      "type": "string"
+    },
+    "canonical_definition": {
+      "description": "The authoritative definition of this term within APLH context",
+      "title": "Canonical Definition",
+      "type": "string"
+    },
+    "aliases": {
+      "description": "Acceptable alternative names or abbreviations for this term",
+      "items": {
+        "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+    },
+    "disallowed_or_ambiguous_usages": {
+      "description": "Terms or usages that are explicitly disallowed or flagged as ambiguous",
+      "items": {
+        "type": "string"
+      },
+      "title": "Disallowed Or Ambiguous Usages",
+      "type": "array"
+    },
+    "source_refs": {
+      "description": "Source references for the definition",
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Refs",
+      "type": "array"
+    },
+    "owner_domain": {
+      "default": "",
+      "description": "Engineering domain responsible for this term",
+      "title": "Owner Domain",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "term",
+    "canonical_definition"
+  ],
+  "title": "GlossaryEntry",
+  "type": "object"
+}

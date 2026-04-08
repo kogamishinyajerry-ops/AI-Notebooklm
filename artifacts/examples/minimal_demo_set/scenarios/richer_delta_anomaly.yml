@@ -1,0 +1,43 @@
+# Demo scenario: N1 rate-of-change anomaly (DELTA_GT operator)
+# Exercises GUARD-0001 (delta_gt) on TRANS-0001 (normal → degraded).
+# Requires RicherEvaluator for DELTA_GT support.
+
+scenario_id: SCENARIO-RICHER-DELTA-001
+title: N1 Sensor Anomaly via Delta Detection
+description: >
+  Simulates an N1 sensor anomaly where the rate of change between ticks
+  exceeds 500 Hz. GUARD-0001 uses the DELTA_GT operator to detect this.
+  Expected: MODE-0001 → MODE-0002 via TRANS-0001 at tick 3.
+baseline_scope: demo-scale
+initial_mode_id: MODE-0001
+version: "1.0.0"
+tags:
+  - richer
+  - delta_gt
+  - degraded
+  - phase3-3
+
+expected_final_mode: MODE-0002
+expected_transitions:
+  - TRANS-0001
+
+ticks:
+  - tick_id: 1
+    signal_updates:
+      IFACE-0001.N1_Speed: 3000.0
+    notes: "Normal N1 speed at cruise"
+
+  - tick_id: 2
+    signal_updates:
+      IFACE-0001.N1_Speed: 3050.0
+    notes: "Small delta (+50 Hz) — within normal bounds"
+
+  - tick_id: 3
+    signal_updates:
+      IFACE-0001.N1_Speed: 3600.0
+    notes: "Large delta (+550 Hz) — exceeds 500 Hz threshold, anomaly detected"
+
+  - tick_id: 4
+    signal_updates:
+      IFACE-0001.N1_Speed: 3400.0
+    notes: "In degraded mode — N1 reading in range but not yet recovered"

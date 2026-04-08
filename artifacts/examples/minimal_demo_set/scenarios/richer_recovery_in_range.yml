@@ -1,0 +1,43 @@
+# Demo scenario: Degraded recovery via IN_RANGE operator
+# Exercises GUARD-0003 (in_range [2000, 4800]) on TRANS-0003 (degraded → normal).
+# Requires RicherEvaluator for IN_RANGE support.
+
+scenario_id: SCENARIO-RICHER-RANGE-001
+title: Degraded Recovery — N1 Returns to Normal Range
+description: >
+  Starts in degraded mode (MODE-0002). N1 speed gradually returns to the
+  normal operating band [2000, 4800] Hz. GUARD-0003 uses IN_RANGE to detect
+  recovery. Expected: MODE-0002 → MODE-0001 via TRANS-0003 at tick 3.
+baseline_scope: demo-scale
+initial_mode_id: MODE-0002
+version: "1.0.0"
+tags:
+  - richer
+  - in_range
+  - recovery
+  - phase3-3
+
+expected_final_mode: MODE-0001
+expected_transitions:
+  - TRANS-0003
+
+ticks:
+  - tick_id: 1
+    signal_updates:
+      IFACE-0001.N1_Speed: 5100.0
+    notes: "Still above normal range — no recovery"
+
+  - tick_id: 2
+    signal_updates:
+      IFACE-0001.N1_Speed: 4900.0
+    notes: "Above 4800 — still out of range"
+
+  - tick_id: 3
+    signal_updates:
+      IFACE-0001.N1_Speed: 4500.0
+    notes: "Within [2000, 4800] — IN_RANGE satisfied, recovery transition fires"
+
+  - tick_id: 4
+    signal_updates:
+      IFACE-0001.N1_Speed: 4200.0
+    notes: "Back in normal mode — steady state"

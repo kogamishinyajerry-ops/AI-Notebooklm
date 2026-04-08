@@ -1,0 +1,55 @@
+report_id: FREEZE-READINESS-20260408120257
+generated_at: '2026-04-08T12:02:57.622058+00:00'
+formal_baseline_dir: /Users/Zhuanz/20260402 AI ControlLogicMaster/artifacts
+source_demo_dir: /Users/Zhuanz/20260402 AI 
+  ControlLogicMaster/artifacts/examples/minimal_demo_set
+formal_state: accepted_for_review
+population_state: populated
+validation_state: post-validated
+review_preparation_state: ready_for_freeze_review
+gate_results:
+- gate_id: G6-A
+  tier: T1
+  passed: true
+  detail: Formal Phase 2A population is corroborated by promoted manifests and 
+    promotion audit records.
+- gate_id: G6-B
+  tier: T1
+  passed: true
+  detail: Formal baseline passes hard post-validation.
+- gate_id: G6-C
+  tier: T1
+  passed: true
+  detail: ADV-1 through ADV-4 are routed and closed in the governance record.
+- gate_id: G6-D
+  tier: T1
+  passed: true
+  detail: Review packet is complete and the formal baseline is ready for 
+    independent freeze review.
+- gate_id: G6-E
+  tier: T2
+  passed: true
+  detail: Manual review intake recorded as accepted_for_review.
+blocking_conditions: []
+advisory_status_refs:
+- /Users/Zhuanz/20260402 AI 
+  ControlLogicMaster/artifacts/.aplh/advisory_resolutions.yaml#ADV-1
+- /Users/Zhuanz/20260402 AI 
+  ControlLogicMaster/artifacts/.aplh/advisory_resolutions.yaml#ADV-2
+- /Users/Zhuanz/20260402 AI 
+  ControlLogicMaster/artifacts/.aplh/advisory_resolutions.yaml#ADV-3
+- /Users/Zhuanz/20260402 AI 
+  ControlLogicMaster/artifacts/.aplh/advisory_resolutions.yaml#ADV-4
+manifest_refs:
+- /Users/Zhuanz/20260402 AI 
+  ControlLogicMaster/artifacts/examples/minimal_demo_set/.aplh/promotion_manifests/FORMAL-POP-20260407142521.yaml
+promotion_audit_refs:
+- /Users/Zhuanz/20260402 AI 
+  ControlLogicMaster/artifacts/.aplh/formal_promotions_log.yaml#manifest_id=FORMAL-POP-20260407142521
+manual_actions_required:
+- Manual freeze decision still requires explicit human signoff in 
+  artifacts/.aplh/freeze_gate_status.yaml.
+- Human reviewer may record accepted_for_review or pending_manual_decision in 
+  artifacts/.aplh/acceptance_audit_log.yaml.
+- freeze_gate_status.yaml remains manual-only; do not auto-write 
+  freeze-complete.

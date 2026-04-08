@@ -1,0 +1,32 @@
+id: "GUARD-0003"
+artifact_type: "guard"
+version: "0.1.0"
+status: "active"
+provenance:
+  source_type: "human_authored"
+  source_refs: []
+  method: "manual"
+  confidence: 1.0
+  reviewed_by: "Phase3-3"
+  review_date: "2026-04-05T12:00:00Z"
+review_status: "frozen"
+tags: ["demo", "phase3-3", "richer"]
+created_at: "2026-04-05T12:00:00Z"
+updated_at: "2026-04-05T12:00:00Z"
+name: "N1 Normal Range Recovery"
+description: "True when N1 speed returns to normal operating range (2000-4800 Hz)."
+predicate:
+  predicate_type: "atomic"
+  operator: "in_range"
+  signal_ref: "IFACE-0001.N1_Speed"
+  threshold: 2000.0
+  threshold_high: 4800.0
+  unit: "Hz"
+input_signals:
+  - interface: "IFACE-0001"
+    signal: "N1_Speed"
+    unit: "Hz"
+related_interfaces: ["IFACE-0001"]
+related_requirements: []
+related_abnormals: []
+used_by_transitions: ["TRANS-0003"]

@@ -1,0 +1,22 @@
+bundle_id: BUNDLE_20260405_164456Z
+generated_at: 2026-04-05T16:44:56.981296+00:00Z
+baseline_dir: minimal_demo_set
+baseline_scope: demo-scale
+scenarios_included:
+- scenario_id: SCENARIO-DEMO
+  source_path: scenarios/test.yml
+  version: 1.0.0
+runs_included:
+- run_id: RUN-6DB52F3E5B98
+  scenario_id: SCENARIO-DEMO
+  trace_path: traces/run_RUN-6DB52F3E5B98_SCENARIO-DEMO_20260405T130912Z.yaml
+  evaluator_mode: baseline
+  signoff_count: 1
+  signoff_reviewers:
+  - Independent Review Auditor
+validation_summary:
+  validate_artifacts: pass
+  check_trace: pass
+  mode_validator: pass
+  coverage_validator: fail
+stateful_operator_advisory: []

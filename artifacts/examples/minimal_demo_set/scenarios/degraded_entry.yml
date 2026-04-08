@@ -1,0 +1,38 @@
+# Demo scenario: Degraded mode entry path
+# Demonstrates a scenario where oil pressure drops below threshold,
+# triggering a transition from normal to degraded mode.
+
+scenario_id: SCENARIO-DEGRADED-001
+title: Degraded Mode Entry via Low Oil Pressure
+description: >
+  Simulates an oil pressure drop scenario. The guard on TRANS-0001
+  (if present in a populated ModeGraph) would evaluate the pressure
+  threshold and trigger the normal-to-degraded transition.
+baseline_scope: demo-scale
+initial_mode_id: MODE-0001
+version: "1.0.0"
+tags:
+  - degraded
+  - oil-pressure
+  - transition
+
+ticks:
+  - tick_id: 1
+    signal_updates:
+      IFACE-0001.oil_pressure: 45.0
+    notes: "Normal oil pressure at startup"
+
+  - tick_id: 2
+    signal_updates:
+      IFACE-0001.oil_pressure: 30.0
+    notes: "Oil pressure declining"
+
+  - tick_id: 3
+    signal_updates:
+      IFACE-0001.oil_pressure: 15.0
+    notes: "Oil pressure below threshold — degraded entry expected"
+
+  - tick_id: 4
+    signal_updates:
+      IFACE-0001.oil_pressure: 12.0
+    notes: "Continued low pressure in degraded mode"

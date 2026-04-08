@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "ReviewStatus": {
+      "description": "Review workflow status.",
+      "enum": [
+        "draft",
+        "in_review",
+        "reviewed",
+        "frozen",
+        "rejected"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    },
+    "TraceLinkType": {
+      "description": "Valid relationship types between artifacts.",
+      "enum": [
+        "implements",
+        "satisfies",
+        "uses",
+        "detects",
+        "mitigates",
+        "triggers",
+        "affects",
+        "constrains",
+        "relates_to",
+        "requires_mode",
+        "requires_transition",
+        "defines_condition",
+        "triggers_mode",
+        "triggers_transition",
+        "activates",
+        "monitors",
+        "exits",
+        "enters",
+        "guarded_by",
+        "observes"
+      ],
+      "title": "TraceLinkType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Directed traceability link between two APLH artifacts.\n\nUnlike other artifact types, TraceLink does not extend ArtifactBase\nbecause it is a relationship, not a standalone engineering artifact.\nIt has its own lightweight metadata structure.",
+  "properties": {
+    "id": {
+      "description": "Trace link ID (TRACE-xxxx)",
+      "title": "Id",
+      "type": "string"
+    },
+    "source_id": {
+      "description": "Source artifact ID",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "target_id": {
+      "description": "Target artifact ID",
+      "title": "Target Id",
+      "type": "string"
+    },
+    "link_type": {
+      "$ref": "#/$defs/TraceLinkType",
+      "description": "Relationship type"
+    },
+    "rationale": {
+      "default": "",
+      "description": "Why this trace link exists",
+      "title": "Rationale",
+      "type": "string"
+    },
+    "confidence": {
+      "default": 0.8,
+      "description": "Confidence in this trace link (0.0–1.0)",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "review_status": {
+      "$ref": "#/$defs/ReviewStatus",
+      "default": "draft",
+      "description": "Review status: draft | reviewed | frozen"
+    },
+    "created_at": {
+      "default": "",
+      "description": "ISO 8601 creation timestamp",
+      "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[\\+\\-][0-9]{2}:[0-9]{2})?)$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "description": "Additional notes",
+      "title": "Notes",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "source_id",
+    "target_id",
+    "link_type"
+  ],
+  "title": "TraceLink",
+  "type": "object"
+}

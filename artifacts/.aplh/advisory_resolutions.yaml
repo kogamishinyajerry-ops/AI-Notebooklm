@@ -1,0 +1,61 @@
+- advisory_id: ADV-1
+  title: Path traversal protection
+  phase6_subphase: P6-M2
+  priority: P1
+  gate_id: G6-C
+  tier: T1
+  status: closed
+  resolution_rule: Promotion targets must resolve inside artifacts/modes, 
+    artifacts/transitions, or artifacts/guards only.
+  evidence_refs:
+  - aero_prop_logic_harness/services/promotion_guardrail.py
+  - tests/test_phase5.py
+  - tests/test_phase6.py
+  notes: Resolved target-path enforcement now blocks traversal and ghost 
+    boundary writes.
+- advisory_id: ADV-2
+  title: Post-validation becomes hard gate
+  phase6_subphase: P6-M1
+  priority: P1
+  gate_id: G6-B
+  tier: T1
+  status: closed
+  resolution_rule: Post-promotion validation failure must keep execution below 
+    post-validated and return a failing execution result.
+  evidence_refs:
+  - aero_prop_logic_harness/services/promotion_executor.py
+  - aero_prop_logic_harness/services/freeze_review_preparer.py
+  - tests/test_phase5.py
+  - tests/test_phase6.py
+  notes: Physical copy no longer implies post-validated success.
+- advisory_id: ADV-3
+  title: PromotionPlan / generate_report integration gap
+  phase6_subphase: P6-M2
+  priority: P2
+  gate_id: G6-D
+  tier: T2
+  status: closed
+  resolution_rule: Promotion execution must use PromotionPlan and 
+    post-validation must be sourced from 
+    FormalPopulationChecker.generate_report().
+  evidence_refs:
+  - aero_prop_logic_harness/services/promotion_executor.py
+  - aero_prop_logic_harness/services/freeze_review_preparer.py
+  - tests/test_phase6.py
+  notes: Structured plan/report models are now exercised by the executable path 
+    and review-packet assembly.
+- advisory_id: ADV-4
+  title: Stronger boundary tests
+  phase6_subphase: P6-M2
+  priority: P2
+  gate_id: G6-C
+  tier: T1
+  status: closed
+  resolution_rule: Phase 6 must prove traversal blocking, hard post-validation, 
+    state classification, and governance-only writing with tmp_path-backed 
+    tests.
+  evidence_refs:
+  - tests/test_phase5.py
+  - tests/test_phase6.py
+  notes: Boundary and state-ladder regressions are covered by dedicated Phase 6 
+    tests.

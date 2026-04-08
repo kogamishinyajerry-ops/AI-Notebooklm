@@ -1,0 +1,285 @@
+{
+  "$defs": {
+    "ArtifactType": {
+      "description": "Valid artifact type identifiers.",
+      "enum": [
+        "requirement",
+        "function",
+        "interface",
+        "abnormal",
+        "glossary_entry",
+        "trace_link",
+        "mode",
+        "transition",
+        "guard"
+      ],
+      "title": "ArtifactType",
+      "type": "string"
+    },
+    "LifecycleStatus": {
+      "description": "Artifact lifecycle status.",
+      "enum": [
+        "draft",
+        "active",
+        "deprecated",
+        "withdrawn"
+      ],
+      "title": "LifecycleStatus",
+      "type": "string"
+    },
+    "Provenance": {
+      "description": "Tracks how artifact content was produced and its review state.\n\nThis is central to APLH's knowledge governance: every piece of content\nmust declare its origin and confidence level so that reviewers can\nassess trustworthiness.",
+      "properties": {
+        "source_type": {
+          "$ref": "#/$defs/ProvenanceSourceType",
+          "description": "How this content was produced"
+        },
+        "source_refs": {
+          "description": "List of source document references (document IDs, URLs, etc.)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Refs",
+          "type": "array"
+        },
+        "method": {
+          "default": "",
+          "description": "Description of the production method (e.g., 'extracted by Gemini 3.1 Pro from CCAR-33 §33.28')",
+          "title": "Method",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 0.5,
+          "description": "Confidence level 0.0–1.0",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "reviewed_by": {
+          "default": "",
+          "description": "Reviewer identity (empty if not yet reviewed)",
+          "title": "Reviewed By",
+          "type": "string"
+        },
+        "review_date": {
+          "default": "",
+          "description": "ISO date of review (empty if not yet reviewed)",
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[\\+\\-][0-9]{2}:[0-9]{2})?)?)$",
+          "title": "Review Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_type"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "ProvenanceSourceType": {
+      "description": "How the artifact content was produced.",
+      "enum": [
+        "human_authored",
+        "ai_extracted",
+        "ai_inferred",
+        "mixed",
+        "reference"
+      ],
+      "title": "ProvenanceSourceType",
+      "type": "string"
+    },
+    "ReviewStatus": {
+      "description": "Review workflow status.",
+      "enum": [
+        "draft",
+        "in_review",
+        "reviewed",
+        "frozen",
+        "rejected"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Structured engineering requirement for propulsion control logic.\n\nFields capture the requirement statement, its conditions, expected system\nresponse, verification approach, and links to related artifacts.",
+  "properties": {
+    "id": {
+      "description": "Unique artifact ID (e.g., REQ-0001)",
+      "title": "Id",
+      "type": "string"
+    },
+    "artifact_type": {
+      "$ref": "#/$defs/ArtifactType",
+      "default": "requirement",
+      "description": "Must be 'requirement'"
+    },
+    "version": {
+      "default": "0.1.0",
+      "description": "Semantic version of this artifact",
+      "title": "Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/LifecycleStatus",
+      "default": "draft",
+      "description": "Lifecycle status"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance",
+      "description": "Content provenance and confidence metadata"
+    },
+    "review_status": {
+      "$ref": "#/$defs/ReviewStatus",
+      "default": "draft",
+      "description": "Review workflow status"
+    },
+    "tags": {
+      "description": "Free-form tags for filtering/grouping",
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "created_at": {
+      "description": "ISO 8601 creation timestamp",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[\\+\\-][0-9]{2}:[0-9]{2})?$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "description": "ISO 8601 last-updated timestamp",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[\\+\\-][0-9]{2}:[0-9]{2})?$",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "description": "Free-text notes, assumptions, open questions",
+      "title": "Notes",
+      "type": "string"
+    },
+    "title": {
+      "description": "Short descriptive title of the requirement",
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "description": "Full requirement statement in engineering prose",
+      "title": "Description",
+      "type": "string"
+    },
+    "source_refs": {
+      "description": "Source documents this requirement derives from (e.g., regulation clause, spec section)",
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Refs",
+      "type": "array"
+    },
+    "category": {
+      "default": "",
+      "description": "Requirement category (e.g., 'thrust_control', 'engine_protection', 'bleed_control', 'monitoring')",
+      "title": "Category",
+      "type": "string"
+    },
+    "lifecycle_phase": {
+      "default": "",
+      "description": "Applicable lifecycle phase (e.g., 'ground_start', 'takeoff', 'cruise', 'shutdown', 'all')",
+      "title": "Lifecycle Phase",
+      "type": "string"
+    },
+    "triggers": {
+      "description": "Events or conditions that activate this requirement",
+      "items": {
+        "type": "string"
+      },
+      "title": "Triggers",
+      "type": "array"
+    },
+    "conditions": {
+      "description": "Preconditions that must be true for this requirement to apply",
+      "items": {
+        "type": "string"
+      },
+      "title": "Conditions",
+      "type": "array"
+    },
+    "expected_response": {
+      "default": "",
+      "description": "What the system should do when triggered under the stated conditions",
+      "title": "Expected Response",
+      "type": "string"
+    },
+    "verification_observables": {
+      "description": "Observable outputs or states that can verify compliance",
+      "items": {
+        "type": "string"
+      },
+      "title": "Verification Observables",
+      "type": "array"
+    },
+    "safety_relevance": {
+      "default": false,
+      "description": "Whether this requirement has safety implications (triggers additional review)",
+      "title": "Safety Relevance",
+      "type": "boolean"
+    },
+    "linked_functions": {
+      "description": "FUNC-xxxx IDs of functions that implement this requirement",
+      "items": {
+        "type": "string"
+      },
+      "title": "Linked Functions",
+      "type": "array"
+    },
+    "linked_interfaces": {
+      "description": "IFACE-xxxx IDs of interfaces related to this requirement",
+      "items": {
+        "type": "string"
+      },
+      "title": "Linked Interfaces",
+      "type": "array"
+    },
+    "linked_abnormals": {
+      "description": "ABN-xxxx IDs of abnormal conditions related to this requirement",
+      "items": {
+        "type": "string"
+      },
+      "title": "Linked Abnormals",
+      "type": "array"
+    },
+    "linked_modes": {
+      "description": "MODE-xxxx IDs of modes related to this requirement",
+      "items": {
+        "type": "string"
+      },
+      "title": "Linked Modes",
+      "type": "array"
+    },
+    "linked_transitions": {
+      "description": "TRANS-xxxx IDs of transitions related to this requirement",
+      "items": {
+        "type": "string"
+      },
+      "title": "Linked Transitions",
+      "type": "array"
+    },
+    "linked_guards": {
+      "description": "GUARD-xxxx IDs of guard conditions related to this requirement",
+      "items": {
+        "type": "string"
+      },
+      "title": "Linked Guards",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "description"
+  ],
+  "title": "Requirement",
+  "type": "object"
+}
