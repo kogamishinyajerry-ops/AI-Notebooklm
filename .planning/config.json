@@ -2,7 +2,7 @@
   "mode": "yolo",
   "depth": "standard",
   "model_profile": "quality",
-  "commit_docs": false,
+  "commit_docs": true,
   "search_gitignored": true,
   "workflow": {
     "research": false,

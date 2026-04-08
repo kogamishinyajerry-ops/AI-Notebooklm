@@ -50,7 +50,7 @@ The Notion control hub already exists at a dedicated page and now needs to becom
 
 - **Governance**: Final freeze signoff is manual-only — no automation may imply or perform `freeze-complete`.
 - **Review**: Opus 4.6 review triggers must remain explicit human actions, even if surrounding planning and execution are automated.
-- **Repository**: This directory is not currently a git repository, so stock GSD atomic code commits are unavailable until git is initialized.
+- **Repository**: This directory is now a local git repository on `main`; GitHub remote creation is still pending until a GitHub token is visible to the current process or `gh` is authenticated.
 - **Truth Source**: Accepted docs and state files in the repository remain canonical over Notion summaries.
 - **Domain Safety**: Accepted schema, trace, validator, evaluator, and runtime boundaries must not be reopened casually while building cockpit infrastructure.
 
@@ -62,7 +62,7 @@ The Notion control hub already exists at a dedicated page and now needs to becom
 | Bootstrap GSD in-place on the current brownfield repo | Project already has rich accepted artifacts; greenfield workflow would lose context | ✓ Good |
 | Treat Opus 4.6 as explicit review gates in roadmap and Notion | Makes human review pauses first-class and resumable | ✓ Good |
 | Record current failing tests as blockers instead of silently fixing scope | Cockpit should surface repo reality before automating over it | ✓ Good |
-| Disable planning doc commits in GSD config for now | Repo has no `.git`, so commit-based safeguards are not available yet | ⚠️ Revisit |
+| Enable planning doc commits after git initialization | Repo now has `.git`, so GSD planning artifacts can participate in atomic commits | ✓ Good |
 
 ---
-*Last updated: 2026-04-09 after GSD cockpit integration bootstrap*
+*Last updated: 2026-04-09 after local git initialization*

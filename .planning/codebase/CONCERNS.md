@@ -2,11 +2,11 @@
 
 ## Immediate Concerns
 
-- **No git repository**
-  GSD architecture is now present, but native atomic commit behavior is unavailable until git is initialized or a no-git execution wrapper is introduced.
-
 - **Tests are not fully aligned with current repo reality**
   Seven failures remain, especially around historical expectations for baseline pollution, promotion manifests, and Phase 7 inventory size.
+
+- **GitHub remote is not connected yet**
+  The workspace is now a local git repository, but GitHub remote workflows still need a visible token or `gh` login.
 
 - **Current roadmap is governance-heavy**
   Remaining work is mostly packaging, review routing, and boundary preservation rather than new subsystem implementation. The cockpit must not assume a normal feature-delivery cadence.
@@ -21,4 +21,4 @@
 
 - Whether `freeze-readiness` transitions from docs incomplete to pass after Phase 15
 - Whether Phase 7 tests need a dedicated reconciliation phase before any claim of repo-wide health
-- Whether git initialization should be adopted to unlock full stock GSD execution semantics
+- Whether GitHub remote creation should happen through `gh` once authentication is available
