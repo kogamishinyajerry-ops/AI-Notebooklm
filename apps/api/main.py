@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import shutil
@@ -19,6 +21,14 @@ app = FastAPI(title="COMAC Intelligent NotebookLM API")
 # Initialize shared services
 ingestion_service = IngestionService()
 retriever_engine = RetrieverEngine()
+
+# Mount static files
+static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
+app.mount("/static", StaticFiles(directory=static_path), name="static")
+
+@app.get("/")
+async def read_index():
+    return FileResponse(os.path.join(static_path, "index.html"))
 
 # Domain Models
 class Citation(BaseModel):
@@ -65,7 +75,6 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
         return resp.json()["choices"][0]["message"]["content"]
     except Exception:
         # Mock LLM generation logic if vLLM is offline
-        # We manually fabricate a citation that matches the prompt requirement
         return "根据检索到的数据，<citation src='mock_source.pdf' page='1'>这部分是关于飞行控制律的描述</citation>。另外，还有一个幻觉：<citation src='non_existent.pdf' page='99'>错误的参数配置</citation>。"
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
@@ -77,10 +86,8 @@ async def chat_endpoint(request: ChatRequest):
     # 1. Retrieve
     contexts = retriever_engine.retrieve(request.query, top_k=5, final_k=3)
     
-    # If using the fallback mock (because retrieval might return empty), 
-    # we manually inject the mock_source into context to demonstrate the Gateway actually verifying it.
     if not contexts:
-        contexts = [{"text": "这部分是关于飞行控制律的描述", "metadata": {"source": "mock_source.pdf", "page": "1", "bbox": [0,0,10,10]}}]
+        contexts = [{"text": "这部分是关于飞行控制律的描述", "metadata": {"source": "mock_source.pdf", "page": "1", "bbox": [100, 100, 400, 150]}}]
         
     # 2. Build Prompt
     context_str = build_context_block(contexts)
@@ -114,11 +121,9 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
     
-    # Save file to disk
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # Trigger local ingestion pipeline
     try:
         chunk_count = ingestion_service.process_file(file_path)
     except Exception as e:

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COMAC Intelligent NotebookLM</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                AI NotebookLM
+            </div>
+            <div class="source-list" id="source-list">
+                <p style="color: var(--text-secondary); font-size: 0.75rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em;">Your Sources</p>
+                <div class="source-item">mock_source.pdf</div>
+            </div>
+        </aside>
+
+        <!-- Main Content (Dual Pane) -->
+        <main class="main-content">
+            <!-- Left: PDF Viewer -->
+            <section class="pdf-pane">
+                <div style="padding: 1rem; border-bottom: 1px solid var(--border); font-weight: 600;">
+                    Document Preview
+                </div>
+                <div class="pdf-viewport" id="pdf-viewport">
+                    <div class="pdf-page-mock" id="pdf-page">
+                        <div id="highlight" class="highlight-overlay"></div>
+                        <div style="padding: 40px; color: #ccc; font-family: serif;">
+                            <h2 style="color: black; margin-bottom: 20px;">COMAC 飞行控制律说明书 (Mock)</h2>
+                            <p style="color: #444; line-height: 1.6;">
+                                这部分是关于飞行控制律的描述。控制律的设计旨在保证飞机的稳定性和操纵性。
+                                系统通过多重传感器输入，计算最优的控制面偏置。
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right: Chat Interface -->
+            <section class="chat-pane">
+                <div style="padding: 1rem; border-bottom: 1px solid var(--border); font-weight: 600;">
+                    AI Assistant
+                </div>
+                <div class="chat-history" id="chat-history">
+                    <div class="message system">
+                        Hello. I'm your Intelligent Engineering Assistant. Upload documents to the left or ask questions based on existing knowledge.
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="query-input" placeholder="Ask about your documents...">
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
