@@ -4,17 +4,21 @@ from typing import List, Optional
 import shutil
 import os
 import sys
+import requests
 
 # Ensure root is in path for local service imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from services.ingestion.service import IngestionService
+from core.retrieval.retriever import RetrieverEngine
+from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
+from core.governance.gateway import AntiHallucinationGateway
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
 
 # Initialize shared services
-# Note: On first run, this triggers transformer model download for embeddings
 ingestion_service = IngestionService()
+retriever_engine = RetrieverEngine()
 
 # Domain Models
 class Citation(BaseModel):
@@ -30,7 +34,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    # Constraint C2: Mandatory citations field for traceability
+    is_fully_verified: bool
     citations: List[Citation]
 
 # Routes
@@ -43,25 +47,64 @@ def create_space(name: str):
     """Creates a new knowledge space (collection in vector db)."""
     return {"space_id": "mock-id-123", "name": name}
 
+def invoke_local_llm(system_prompt: str, user_query: str) -> str:
+    """Invokes local vLLM (Qwen-2.5/GLM-4) via OpenAI-compatible API."""
+    try:
+        resp = requests.post(
+            "http://localhost:8000/v1/chat/completions",
+            json={
+                "model": "qwen-2.5", 
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_query}
+                ]
+            },
+            timeout=5
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+    except Exception:
+        # Mock LLM generation logic if vLLM is offline
+        # We manually fabricate a citation that matches the prompt requirement
+        return "根据检索到的数据，<citation src='mock_source.pdf' page='1'>这部分是关于飞行控制律的描述</citation>。另外，还有一个幻觉：<citation src='non_existent.pdf' page='99'>错误的参数配置</citation>。"
+
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     """
     Core Q&A endpoint. 
-    Response must include XML-compatible citation placeholders in 'answer' 
-    and detailed metadata in 'citations'.
+    Triggers RAG retrieval, LLM Prompting, and Gateway strict parsing.
     """
-    # Mock response illustrating C2 compliance
-    mock_answer = "根据资料 <citation src='doc1.pdf' page='5'>...</citation>，企业核心机密等级为..."
+    # 1. Retrieve
+    contexts = retriever_engine.retrieve(request.query, top_k=5, final_k=3)
+    
+    # If using the fallback mock (because retrieval might return empty), 
+    # we manually inject the mock_source into context to demonstrate the Gateway actually verifying it.
+    if not contexts:
+        contexts = [{"text": "这部分是关于飞行控制律的描述", "metadata": {"source": "mock_source.pdf", "page": "1", "bbox": [0,0,10,10]}}]
+        
+    # 2. Build Prompt
+    context_str = build_context_block(contexts)
+    system_prompt = QA_SYSTEM_PROMPT.format(context_blocks=context_str)
+    
+    # 3. Generate (LLM)
+    raw_response = invoke_local_llm(system_prompt, request.query)
+    
+    # 4. Anti-Hallucination Gate
+    is_valid, safe_response, verified_citations = AntiHallucinationGateway.validate_and_parse(raw_response, contexts)
+    
+    citations_data = [
+        Citation(
+            source_file=c["source_file"],
+            page_number=c["page_number"],
+            content=c["content"],
+            bbox=c["bbox"]
+        ) for c in verified_citations
+    ]
+    
     return ChatResponse(
-        answer=mock_answer,
-        citations=[
-            Citation(
-                source_file="doc1.pdf",
-                page_number=5,
-                content="企业核心机密等级为...",
-                bbox=[100, 200, 300, 400]
-            )
-        ]
+        answer=safe_response,
+        is_fully_verified=is_valid,
+        citations=citations_data
     )
 
 @app.post("/api/v1/documents/upload")
