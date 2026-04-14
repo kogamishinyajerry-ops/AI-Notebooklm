@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  notebooklm-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: comac_notebooklm_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      # In a real environment, VLLM_URL would point to the local LLM host
+      - VLLM_URL=http://host.docker.internal:8000/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
