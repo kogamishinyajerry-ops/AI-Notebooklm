@@ -1,8 +1,20 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
+import shutil
+import os
+import sys
+
+# Ensure root is in path for local service imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from services.ingestion.service import IngestionService
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
+
+# Initialize shared services
+# Note: On first run, this triggers transformer model download for embeddings
+ingestion_service = IngestionService()
 
 # Domain Models
 class Citation(BaseModel):
@@ -35,7 +47,6 @@ def create_space(name: str):
 async def chat_endpoint(request: ChatRequest):
     """
     Core Q&A endpoint. 
-    In actual implementation, this triggers the RAG pipeline.
     Response must include XML-compatible citation placeholders in 'answer' 
     and detailed metadata in 'citations'.
     """
@@ -56,4 +67,23 @@ async def chat_endpoint(request: ChatRequest):
 @app.post("/api/v1/documents/upload")
 async def upload_document(space_id: str, file: UploadFile = File(...)):
     """Uploads and triggers ingestion for a document."""
-    return {"filename": file.filename, "status": "processing"}
+    upload_dir = "data/docs"
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(upload_dir, file.filename)
+    
+    # Save file to disk
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    # Trigger local ingestion pipeline
+    try:
+        chunk_count = ingestion_service.process_file(file_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
+    
+    return {
+        "filename": file.filename, 
+        "space_id": space_id,
+        "chunks_indexed": chunk_count,
+        "status": "completed"
+    }
