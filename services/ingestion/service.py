@@ -9,8 +9,8 @@ class IngestionService:
     Orchestrator for the Document Ingestion Pipeline.
     Coordinates Parsing -> Chunking -> Embedding -> Storage.
     """
-    def __init__(self):
-        self.vector_store = VectorStoreAdapter()
+    def __init__(self, space_id: str = "default"):
+        self.vector_store = VectorStoreAdapter(space_id=space_id)
         self.embedding_manager = EmbeddingManager()
         self.chunker = SemanticChunker()
 

@@ -1,15 +1,15 @@
 import chromadb
-from chromadb.config import Settings
 import uuid
+from core.storage.space_resolver import normalize_space_id
 
 class VectorStoreAdapter:
     """
     Adapter for local vector storage using ChromaDB.
     Ensures data privacy (C1) by running as a local persistent library.
     """
-    def __init__(self, persist_directory: str = "data/vector_db"):
+    def __init__(self, space_id: str = "default", persist_directory: str = "data/vector_db"):
         self.client = chromadb.PersistentClient(path=persist_directory)
-        self.collection_name = "doc_knowledge_base"
+        self.collection_name = f"space_{normalize_space_id(space_id)}"
         self.collection = self.client.get_or_create_collection(name=self.collection_name)
 
     def add_documents(self, chunks: list[str], metadatas: list[dict], embeddings: list[list[float]]):
@@ -25,12 +25,18 @@ class VectorStoreAdapter:
             documents=chunks
         )
 
-    def query(self, query_embeddings: list[float], top_k: int = 5):
+    def query(
+        self,
+        query_embeddings: list[float] = None,
+        top_k: int = 5,
+        query_embedding: list[float] = None,
+    ):
         """
         Queries the store for the most relevant chunks.
         """
+        embedding = query_embeddings if query_embeddings is not None else query_embedding
         results = self.collection.query(
-            query_embeddings=[query_embeddings],
+            query_embeddings=[embedding],
             n_results=top_k
         )
         return results

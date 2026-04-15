@@ -16,13 +16,12 @@ from services.ingestion.service import IngestionService
 from core.retrieval.retriever import RetrieverEngine
 from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
 from core.governance.gateway import AntiHallucinationGateway
-from core.storage.space_resolver import get_space_docs_dir, get_space_notes_file
+from core.storage.space_resolver import get_space_docs_dir, get_space_notes_file, normalize_space_id
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
 
-# Initialize shared services
-ingestion_service = IngestionService()
-retriever_engine = RetrieverEngine()
+_ingestion_services: Dict[str, IngestionService] = {}
+_retriever_engines: Dict[str, RetrieverEngine] = {}
 
 # Mount static files
 static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
@@ -55,6 +54,20 @@ class Note(BaseModel):
     content: str
     source_refs: List[Dict[str, Any]]
     created_at: float
+
+
+def get_ingestion_service(space_id: str) -> IngestionService:
+    key = normalize_space_id(space_id)
+    if key not in _ingestion_services:
+        _ingestion_services[key] = IngestionService(space_id=key)
+    return _ingestion_services[key]
+
+
+def get_retriever_engine(space_id: str) -> RetrieverEngine:
+    key = normalize_space_id(space_id)
+    if key not in _retriever_engines:
+        _retriever_engines[key] = RetrieverEngine(space_id=key)
+    return _retriever_engines[key]
 
 # Routes
 @app.get("/health")
@@ -94,7 +107,7 @@ def get_document_preview(filename: str, space_id: str):
     doc_path = get_space_docs_dir(space_id) / safe_filename
     if not doc_path.exists():
         raise HTTPException(status_code=404, detail="Document not found in this space")
-    return retriever_engine.get_by_source(safe_filename, limit=10)
+    return get_retriever_engine(space_id).get_by_source(safe_filename, limit=10)
 
 @app.post("/api/v1/spaces")
 def create_space(name: str):
@@ -155,7 +168,7 @@ async def chat_endpoint(request: ChatRequest):
     Triggers RAG retrieval, LLM Prompting, and Gateway strict parsing.
     """
     # 1. Retrieve
-    contexts = retriever_engine.retrieve(request.query, top_k=5, final_k=3)
+    contexts = get_retriever_engine(request.space_id).retrieve(request.query, top_k=5, final_k=3)
     
     if not contexts:
         contexts = [{"text": "这部分是关于飞行控制律的描述", "metadata": {"source": "mock_source.pdf", "page": "1", "bbox": [100, 100, 400, 150]}}]
@@ -196,7 +209,7 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
     
     try:
-        chunk_count = ingestion_service.process_file(str(file_path))
+        chunk_count = get_ingestion_service(space_id).process_file(str(file_path))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
     
