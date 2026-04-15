@@ -12,7 +12,12 @@ import requests
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from services.ingestion.service import IngestionService
-from core.ingestion.transaction import IngestTransaction, iter_space_ids, recover_incomplete_transactions
+from core.ingestion.transaction import (
+    IngestTransaction,
+    iter_space_ids,
+    recover_incomplete_transactions,
+    summarize_transaction_health,
+)
 from core.retrieval.retriever import RetrieverEngine
 from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
 from core.governance.gateway import AntiHallucinationGateway
@@ -62,6 +67,14 @@ class ChatResponse(BaseModel):
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "COMAC NotebookLM"}
+
+@app.get("/api/v1/health")
+def api_health_check():
+    return {
+        "status": "ok",
+        "service": "COMAC NotebookLM",
+        "transactions": summarize_transaction_health(),
+    }
 
 @app.post("/api/v1/spaces")
 def create_space(name: str):

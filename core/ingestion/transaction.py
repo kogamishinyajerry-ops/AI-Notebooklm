@@ -8,16 +8,29 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_SPACES_DIR = Path("data/spaces")
+DEFAULT_COMMITTED_JOURNAL_RETENTION_DAYS = 7
 
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_journal_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def resolve_space_path(space_id: str, *parts: str, base_dir: str | Path = DEFAULT_SPACES_DIR) -> Path:
@@ -39,10 +52,12 @@ class IngestTransaction:
         space_id: str,
         ingest_id: str | None = None,
         base_dir: str | Path = DEFAULT_SPACES_DIR,
+        committed_retention_days: int | None = DEFAULT_COMMITTED_JOURNAL_RETENTION_DAYS,
     ):
         self.space_id = space_id
         self.ingest_id = ingest_id or str(uuid.uuid4())
         self.base_dir = Path(base_dir)
+        self.committed_retention_days = committed_retention_days
 
         tx_dir = resolve_space_path(space_id, ".transactions", base_dir=self.base_dir)
         tx_dir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +121,12 @@ class IngestTransaction:
         self._journal["status"] = "committed"
         self._journal["committed_at"] = utc_now_iso()
         self.flush()
+        cleanup_committed_transactions(
+            self.space_id,
+            retention_days=self.committed_retention_days,
+            base_dir=self.base_dir,
+            exclude_paths={self.journal_path},
+        )
 
     def rollback(self, vector_store: Any = None, registry: Any = None) -> None:
         """Best-effort rollback of all resources recorded in the journal."""
@@ -150,6 +171,7 @@ class IngestTransaction:
         tx.space_id = data["space_id"]
         tx.ingest_id = data["ingest_id"]
         tx.base_dir = path.parents[1].parent
+        tx.committed_retention_days = DEFAULT_COMMITTED_JOURNAL_RETENTION_DAYS
         tx.journal_path = path
         tx._journal = data
         tx.resources
@@ -185,3 +207,78 @@ def recover_incomplete_transactions(
             continue
 
     return recovered
+
+
+def cleanup_committed_transactions(
+    space_id: str,
+    retention_days: int | None = DEFAULT_COMMITTED_JOURNAL_RETENTION_DAYS,
+    base_dir: str | Path = DEFAULT_SPACES_DIR,
+    now: datetime | None = None,
+    exclude_paths: set[Path] | None = None,
+) -> int:
+    """Delete committed journals older than the retention window."""
+    if retention_days is None or retention_days < 0:
+        return 0
+
+    tx_dir = resolve_space_path(space_id, ".transactions", base_dir=base_dir)
+    if not tx_dir.exists():
+        return 0
+
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    cutoff = current_time - timedelta(days=retention_days)
+    excluded = {path.resolve() for path in exclude_paths or set()}
+
+    removed = 0
+    for journal_file in sorted(tx_dir.glob("*.json")):
+        if journal_file.resolve() in excluded:
+            continue
+        try:
+            data = json.loads(journal_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        if data.get("status") != "committed":
+            continue
+
+        committed_at = parse_journal_datetime(data.get("committed_at"))
+        if committed_at is None or committed_at >= cutoff:
+            continue
+
+        try:
+            journal_file.unlink()
+            removed += 1
+        except Exception:
+            continue
+
+    return removed
+
+
+def count_incomplete_transactions(
+    space_id: str,
+    base_dir: str | Path = DEFAULT_SPACES_DIR,
+) -> int:
+    tx_dir = resolve_space_path(space_id, ".transactions", base_dir=base_dir)
+    if not tx_dir.exists():
+        return 0
+
+    count = 0
+    for journal_file in sorted(tx_dir.glob("*.json")):
+        try:
+            data = json.loads(journal_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("status") == "in_progress":
+            count += 1
+    return count
+
+
+def summarize_transaction_health(base_dir: str | Path = DEFAULT_SPACES_DIR) -> dict[str, Any]:
+    spaces: dict[str, int] = {}
+    for space_id in iter_space_ids(base_dir=base_dir):
+        spaces[space_id] = count_incomplete_transactions(space_id, base_dir=base_dir)
+    return {
+        "in_progress": sum(spaces.values()),
+        "spaces": spaces,
+    }
