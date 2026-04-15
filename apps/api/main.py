@@ -213,6 +213,8 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
         chunk_count = get_ingestion_service(space_id).process_file(str(file_path))
         invalidate_gateway_cache(space_id)
     except Exception as e:
+        if file_path.exists():
+            file_path.unlink()
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
     
     return {

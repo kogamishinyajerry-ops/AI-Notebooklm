@@ -1,3 +1,5 @@
+import os
+
 from .parser import PDFParser
 from .chunker import SemanticChunker
 from core.retrieval.vector_store import VectorStoreAdapter
@@ -18,30 +20,44 @@ class IngestionService:
         self.parameter_registry = ParameterRegistry(space_id=self.space_id)
 
     def process_file(self, file_path: str):
-        # 1. Parse
-        parser = PDFParser(file_path)
-        blocks = parser.extract_chunks()
-        parser.close()
+        registry_snapshot = self.parameter_registry.snapshot()
+        registry_existed = os.path.exists(self.parameter_registry.registry_path)
+        parser = None
+        try:
+            # 1. Parse
+            parser = PDFParser(file_path)
+            blocks = parser.extract_chunks()
 
-        # 2. Chunk
-        chunks = self.chunker.chunk(blocks)
-        self._register_parameters(chunks)
+            # 2. Chunk
+            chunks = self.chunker.chunk(blocks)
+            self._register_parameters(chunks)
 
-        # 3. Embed & Store
-        texts = [c.text for c in chunks]
-        metadatas = [c.metadata for c in chunks]
-        
-        # In a real environment, we'd batch this to avoid memory issues
-        embeddings = self.embedding_manager.encode(texts)
-        
-        # Store in ChromaDB
-        self.vector_store.add_documents(
-            chunks=texts,
-            metadatas=metadatas,
-            embeddings=embeddings.tolist()
-        )
+            # 3. Embed & Store
+            texts = [c.text for c in chunks]
+            metadatas = [c.metadata for c in chunks]
 
-        return len(chunks)
+            # In a real environment, we'd batch this to avoid memory issues
+            embeddings = self.embedding_manager.encode(texts)
+
+            # Store in ChromaDB
+            self.vector_store.add_documents(
+                chunks=texts,
+                metadatas=metadatas,
+                embeddings=embeddings.tolist()
+            )
+
+            return len(chunks)
+        except Exception:
+            self.parameter_registry.restore(registry_snapshot)
+            if not registry_existed and not registry_snapshot:
+                try:
+                    os.remove(self.parameter_registry.registry_path)
+                except FileNotFoundError:
+                    pass
+            raise
+        finally:
+            if parser is not None:
+                parser.close()
 
     def _register_parameters(self, chunks):
         for index, chunk in enumerate(chunks):
