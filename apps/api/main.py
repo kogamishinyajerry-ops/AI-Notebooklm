@@ -85,11 +85,13 @@ def create_space(name: str):
 
 def invoke_local_llm(system_prompt: str, user_query: str) -> str:
     """Invokes local vLLM (Qwen-2.5/GLM-4) via OpenAI-compatible API."""
+    vllm_url = os.getenv("VLLM_URL", "http://localhost:8000/v1").rstrip("/")
+    model_name = os.getenv("LOCAL_LLM_MODEL", "qwen-2.5")
     try:
         resp = requests.post(
-            "http://localhost:8000/v1/chat/completions",
+            f"{vllm_url}/chat/completions",
             json={
-                "model": "qwen-2.5", 
+                "model": model_name,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_query}
