@@ -54,6 +54,8 @@ function initApp() {
         podcastModal:      document.getElementById('podcast-modal'),
         graphBtn:          document.getElementById('graph-btn'),
         graphModal:        document.getElementById('graph-modal'),
+        graphStatus:       document.getElementById('graph-status'),
+        graphRebuildBtn:   document.getElementById('graph-rebuild-btn'),
         exportBtn:         document.getElementById('export-btn'),
         pdfPage:           document.getElementById('pdf-page'),
         sourceFilter:      document.getElementById('source-filter'),
@@ -97,6 +99,7 @@ function initApp() {
     // 按钮绑定
     if (ui.podcastBtn)   ui.podcastBtn.addEventListener('click', handlePodcast);
     if (ui.graphBtn)     ui.graphBtn.addEventListener('click', handleGraph);
+    if (ui.graphRebuildBtn) ui.graphRebuildBtn.addEventListener('click', handleGraphRebuild);
     if (ui.exportBtn)    ui.exportBtn.addEventListener('click', handleExport);
     if (ui.guideBtn)     ui.guideBtn.addEventListener('click', handleGuide);
 
@@ -682,9 +685,57 @@ async function handlePodcast() {
 
 async function handleGraph() {
     if (ui.graphModal) ui.graphModal.style.display = 'flex';
-    const resp = await fetch('/api/v1/knowledge-graph?space_id=industrial');
-    const data = await resp.json();
-    renderGraph(data);
+    await loadKnowledgeGraph();
+}
+
+async function loadKnowledgeGraph(rebuildReport = null) {
+    try {
+        const resp = await fetch('/api/v1/knowledge-graph?space_id=industrial');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        renderGraph(data);
+        renderGraphStatus(data.graph_stats || {}, rebuildReport);
+    } catch (err) {
+        console.error("知识图谱加载失败:", err);
+        if (ui.graphStatus) ui.graphStatus.textContent = '图谱加载失败，请检查后端连接。';
+        showToast('知识图谱加载失败');
+    }
+}
+
+async function handleGraphRebuild() {
+    if (!ui.graphRebuildBtn) return;
+    ui.graphRebuildBtn.disabled = true;
+    ui.graphRebuildBtn.textContent = '重建中...';
+    try {
+        const resp = await fetch('/api/v1/knowledge-graph/rebuild?space_id=industrial', {
+            method: 'POST',
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const report = data.report || {};
+        await loadKnowledgeGraph(report);
+        showToast(`图谱重建完成：${report.communities_indexed ?? 0} 个社区摘要`);
+    } catch (err) {
+        console.error("知识图谱重建失败:", err);
+        showToast('知识图谱重建失败');
+    } finally {
+        ui.graphRebuildBtn.disabled = false;
+        ui.graphRebuildBtn.textContent = '重建社区摘要';
+    }
+}
+
+function renderGraphStatus(stats, rebuildReport = null) {
+    if (!ui.graphStatus) return;
+    const needsRebuild = Boolean(stats && stats.needs_reclustering);
+    const statusLabel = needsRebuild ? '建议重建' : '状态稳定';
+    const metrics = `节点 ${stats?.nodes ?? 0} / 边 ${stats?.edges ?? 0}`;
+    const rebuildText = rebuildReport
+        ? ` | 最近重建：索引 ${rebuildReport.communities_indexed ?? 0} 个社区`
+        : '';
+    ui.graphStatus.innerHTML = `
+        <span style="display:inline-block;padding:2px 8px;border-radius:999px;background:${needsRebuild ? '#fff4e5' : '#e8f5e9'};color:${needsRebuild ? '#a15c00' : '#1b5e20'};font-weight:600;margin-right:8px;">${statusLabel}</span>
+        <span>${metrics}${rebuildText}</span>
+    `;
 }
 
 function renderGraph(data) {

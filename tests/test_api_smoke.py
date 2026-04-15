@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import networkx as nx
 
 import apps.api.main as main
 
@@ -18,6 +19,41 @@ class DummyRetriever:
 
     def get_by_source(self, filename: str, limit: int = 10):
         return self.retrieve(filename, top_k=limit, final_k=limit)
+
+
+class DummyGraphInspector:
+    def __init__(self):
+        self.graph = nx.MultiDiGraph()
+        self.graph.add_node("FAA Part 25", type="regulatory")
+        self.graph.add_node("Fuel Tank", type="system")
+        self.graph.add_edge("FAA Part 25", "Fuel Tank", relation="governs")
+
+    def get_stats(self):
+        return {
+            "nodes": 2,
+            "edges": 1,
+            "unsaved_chunks": 0,
+            "needs_reclustering": True,
+        }
+
+
+class DummyCommunitySummarizer:
+    def get_cached_communities(self):
+        return [
+            {
+                "community_id": 1,
+                "node_count": 2,
+                "summary": "燃油系统相关的适航规则群。",
+                "sources": ["manual.pdf"],
+            }
+        ]
+
+    def rebuild(self):
+        return {
+            "status": "success",
+            "communities_detected": 1,
+            "communities_indexed": 1,
+        }
 
 
 def test_chat_endpoint_returns_grounded_citations(monkeypatch):
@@ -131,3 +167,30 @@ def test_artifact_endpoint_returns_verified_citations(monkeypatch):
     assert payload["citations"][0]["source_file"] == "manual.pdf"
     assert payload["citations"][0]["page_number"] == 1
     assert "技术简报" in payload["content"]
+
+
+def test_knowledge_graph_endpoint_returns_graph_payload(monkeypatch):
+    monkeypatch.setattr(main, "get_graph_inspector", lambda: DummyGraphInspector())
+    monkeypatch.setattr(main, "get_community_summarizer", lambda: DummyCommunitySummarizer())
+
+    client = TestClient(main.app)
+    response = client.get("/api/v1/knowledge-graph?space_id=test-space")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["nodes"][0]["id"] == "FAA Part 25"
+    assert payload["links"][0]["relation"] == "governs"
+    assert payload["communities"][0]["community_id"] == 1
+    assert payload["graph_stats"]["needs_reclustering"] is True
+
+
+def test_knowledge_graph_rebuild_endpoint_returns_report(monkeypatch):
+    monkeypatch.setattr(main, "get_community_summarizer", lambda: DummyCommunitySummarizer())
+
+    client = TestClient(main.app)
+    response = client.post("/api/v1/knowledge-graph/rebuild?space_id=test-space")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["report"]["communities_indexed"] == 1
