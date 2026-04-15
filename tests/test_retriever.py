@@ -19,10 +19,12 @@ class FakeVectorStore:
     def __init__(self):
         self.query_embeddings = None
         self.top_k = None
+        self.where = None
 
-    def query(self, query_embeddings, top_k):
+    def query(self, query_embeddings, top_k, where=None):
         self.query_embeddings = query_embeddings
         self.top_k = top_k
+        self.where = where
         return {
             "documents": [["doc a", "doc b"]],
             "metadatas": [[
@@ -69,6 +71,6 @@ def test_retriever_uses_vector_store_query_contract():
 
 def test_retriever_returns_empty_when_vector_store_has_no_documents():
     retriever = make_retriever()
-    retriever.vector_store.query = lambda query_embeddings, top_k: {"documents": [[]], "metadatas": [[]]}
+    retriever.vector_store.query = lambda query_embeddings, top_k, where=None: {"documents": [[]], "metadatas": [[]]}
 
     assert retriever.retrieve("test query") == []
