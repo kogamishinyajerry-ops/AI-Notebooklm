@@ -1,6 +1,12 @@
 import pytest
+from io import BytesIO
 
-from services.ingestion.filenames import safe_upload_filename, safe_upload_path, validate_pdf_upload
+from services.ingestion.filenames import (
+    safe_upload_filename,
+    safe_upload_path,
+    validate_pdf_magic,
+    validate_pdf_upload,
+)
 
 
 @pytest.mark.parametrize(
@@ -58,3 +64,18 @@ def test_safe_upload_path_validates_pdf_when_content_type_is_provided(tmp_path):
     path = safe_upload_path(tmp_path, "../manual.pdf", "application/pdf")
 
     assert path == tmp_path / "manual.pdf"
+
+
+def test_validate_pdf_magic_accepts_pdf_and_restores_position():
+    file_obj = BytesIO(b"%PDF-1.7\ncontent")
+    file_obj.seek(5)
+
+    validate_pdf_magic(file_obj)
+
+    assert file_obj.tell() == 5
+
+
+@pytest.mark.parametrize("payload", [b"", b"not-pdf", b" %PDF"])
+def test_validate_pdf_magic_rejects_non_pdf_content(payload):
+    with pytest.raises(ValueError):
+        validate_pdf_magic(BytesIO(payload))

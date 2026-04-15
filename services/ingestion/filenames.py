@@ -4,6 +4,7 @@ from pathlib import Path, PurePath, PureWindowsPath
 
 
 PDF_CONTENT_TYPE = "application/pdf"
+PDF_MAGIC = b"%PDF"
 PDF_SUFFIX = ".pdf"
 
 
@@ -25,6 +26,20 @@ def validate_pdf_upload(filename: str | None, content_type: str | None) -> str:
     if (content_type or "").split(";")[0].strip().lower() != PDF_CONTENT_TYPE:
         raise ValueError("Upload content type must be application/pdf")
     return name
+
+
+def validate_pdf_magic(file_obj) -> None:
+    """Validate that a seekable file-like object starts with a PDF signature."""
+    try:
+        original_position = file_obj.tell()
+        file_obj.seek(0)
+        header = file_obj.read(len(PDF_MAGIC))
+        file_obj.seek(original_position)
+    except Exception as exc:
+        raise ValueError("Upload file stream must be readable and seekable") from exc
+
+    if header != PDF_MAGIC:
+        raise ValueError("Upload file content must start with a PDF signature")
 
 
 def safe_upload_path(upload_dir: str | Path, filename: str | None, content_type: str | None = None) -> Path:
