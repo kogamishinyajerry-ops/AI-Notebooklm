@@ -18,12 +18,25 @@ class VectorStoreAdapter:
         Metadata should include: source_file, page_number, bbox.
         """
         ids = [str(uuid.uuid4()) for _ in chunks]
-        self.collection.add(
-            ids=ids,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            documents=chunks
-        )
+        try:
+            self.collection.add(
+                ids=ids,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                documents=chunks
+            )
+        except Exception:
+            try:
+                self.delete_documents(ids)
+            except Exception:
+                pass
+            raise
+        return ids
+
+    def delete_documents(self, ids: list[str]):
+        if not ids:
+            return
+        self.collection.delete(ids=ids)
 
     def query(
         self,

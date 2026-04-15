@@ -18,6 +18,7 @@ C2 合规：注册表数据为 Gateway 第一层防御的数据源。
 """
 
 import json
+import copy
 import logging
 import os
 import re
@@ -239,6 +240,13 @@ class ParameterRegistry:
             "total_params": total_params,
             "by_type": type_counts,
         }
+
+    def snapshot(self) -> Dict:
+        return copy.deepcopy(self.registry)
+
+    def restore(self, snapshot: Dict) -> None:
+        self.registry = copy.deepcopy(snapshot)
+        self._save()
 
     # ------------------------------------------------------------------
     # Internal
