@@ -8,8 +8,8 @@ class RetrieverEngine:
     Core RAG Retrieval Engine (Task 7)
     Orchestrates initial vector search and subsequent reranking.
     """
-    def __init__(self):
-        self.vector_store = VectorStoreAdapter()
+    def __init__(self, space_id: str = "default"):
+        self.vector_store = VectorStoreAdapter(space_id=space_id)
         self.embedding_manager = EmbeddingManager()
         self.reranker = CrossEncoderReranker()
 
@@ -39,3 +39,12 @@ class RetrieverEngine:
         # 3. Rerank
         best_chunks = self.reranker.rerank(query, formatted_chunks, top_n=final_k)
         return best_chunks
+
+    def get_by_source(self, filename: str, limit: int = 10) -> List[Dict[str, Any]]:
+        results = self.vector_store.collection.get(where={"source": filename}, limit=limit)
+        documents = results.get("documents", [])
+        metadatas = results.get("metadatas", [])
+        return [
+            {"text": doc, "metadata": meta}
+            for doc, meta in zip(documents, metadatas)
+        ]

@@ -196,6 +196,9 @@ class ConstraintChecker:
             return False, result.to_error_message(), []
     """
 
+    def __init__(self, registry=None):
+        self.registry = registry
+
     def check(
         self,
         llm_response: str,

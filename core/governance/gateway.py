@@ -30,8 +30,11 @@ from typing import List, Dict, Any, Tuple
 
 from services.knowledge.parameter_registry import ParameterRegistry, AEROSPACE_PARAM_TAXONOMY
 from services.gateway.constraint_checker import ConstraintChecker
+from core.storage.space_resolver import normalize_space_id
 
 logger = logging.getLogger(__name__)
+
+_gateway_cache: Dict[str, "AntiHallucinationGateway"] = {}
 
 
 class AntiHallucinationGateway:
@@ -53,17 +56,18 @@ class AntiHallucinationGateway:
         re.DOTALL | re.IGNORECASE
     )
 
-    # 单例：摄入阶段已注册的参数表（层 1 数据源）
-    _registry = ParameterRegistry()
+    def __init__(
+        self,
+        registry: ParameterRegistry,
+        checker: ConstraintChecker,
+    ):
+        self._registry = registry
+        self._checker = checker
 
-    # 单例：约束检查器（层 2 提取 + 层 3 规则）
-    _checker = ConstraintChecker()
-
-    @classmethod
     def validate_and_parse(
-        cls,
+        self,
         llm_response: str,
-        contexts: List[Dict[str, Any]],
+        contexts: List[Dict[str, Any]] = None,
     ) -> Tuple[bool, str, List[Dict[str, Any]]]:
         """
         对 LLM 原始响应执行完整的三层防御校验。
@@ -78,10 +82,22 @@ class AntiHallucinationGateway:
             - is_valid=False → 拦截，response_or_error 为错误消息（不含原始响应）
             - verified_citations: 通过校验的引用列表（供前端渲染引用卡片）
         """
+        if not isinstance(self, AntiHallucinationGateway):
+            # Backwards compatibility for legacy class-style calls:
+            # AntiHallucinationGateway.validate_and_parse(response, contexts)
+            return get_gateway()._validate_and_parse(self, llm_response)
+
+        return self._validate_and_parse(llm_response, contexts or [])
+
+    def _validate_and_parse(
+        self,
+        llm_response: str,
+        contexts: List[Dict[str, Any]],
+    ) -> Tuple[bool, str, List[Dict[str, Any]]]:
         # ──────────────────────────────────────────────────────────────
         # 层 2 + 层 3：工程约束检查（Citation 解析前执行，尽早拦截）
         # ──────────────────────────────────────────────────────────────
-        constraint_result = cls._checker.check(llm_response, contexts)
+        constraint_result = self._checker.check(llm_response, contexts)
 
         if constraint_result.has_blocking_violation:
             error_msg = constraint_result.to_error_message()
@@ -99,7 +115,7 @@ class AntiHallucinationGateway:
         # ──────────────────────────────────────────────────────────────
         # 提取响应中声称的所有参数（层 2 数据准备）
         # ──────────────────────────────────────────────────────────────
-        claimed_params_raw = cls._extract_claimed_params_raw(llm_response)
+        claimed_params_raw = self._extract_claimed_params_raw(llm_response)
         # claimed_params_raw: {param_type: (value_str, value_float)}
 
         # ──────────────────────────────────────────────────────────────
@@ -108,7 +124,7 @@ class AntiHallucinationGateway:
         verified_citations = []
         is_fully_verified = True
 
-        for match in cls.CITATION_PATTERN.finditer(llm_response):
+        for match in self.CITATION_PATTERN.finditer(llm_response):
             src = match.group(1).strip()
             page = match.group(2).strip()
             content = match.group(3).strip()
@@ -124,7 +140,7 @@ class AntiHallucinationGateway:
 
                     # 层 2：对所有声称参数逐一做注册表类型核查
                     for p_type, (p_val_str, _p_val_float) in claimed_params_raw.items():
-                        if not cls._registry.verify_claim(
+                        if not self._registry.verify_claim(
                             claimed_value=p_val_str,
                             claimed_type=p_type,
                             source=src,
@@ -161,8 +177,8 @@ class AntiHallucinationGateway:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    @classmethod
-    def _extract_claimed_params_raw(cls, text: str) -> Dict[str, Tuple[str, float]]:
+    @staticmethod
+    def _extract_claimed_params_raw(text: str) -> Dict[str, Tuple[str, float]]:
         """
         从 LLM 响应文本中提取工程参数声称，返回 {类型: (原始值字符串, float)} 字典。
 
@@ -200,3 +216,16 @@ class AntiHallucinationGateway:
                 found[p_type] = (val_str, val_float)
 
         return found
+
+
+def get_gateway(space_id: str = "default") -> AntiHallucinationGateway:
+    key = normalize_space_id(space_id)
+    if key not in _gateway_cache:
+        registry = ParameterRegistry(space_id=key)
+        checker = ConstraintChecker(registry=registry)
+        _gateway_cache[key] = AntiHallucinationGateway(registry, checker)
+    return _gateway_cache[key]
+
+
+def invalidate_gateway_cache(space_id: str = "default") -> None:
+    _gateway_cache.pop(normalize_space_id(space_id), None)

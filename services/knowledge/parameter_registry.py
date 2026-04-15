@@ -24,6 +24,7 @@ import re
 from typing import Dict, Optional
 
 from core.llm.client import call_local_llm
+from core.storage.space_resolver import get_space_params_file, normalize_space_id
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,11 @@ class ParameterRegistry:
     校验时（gateway）：verify_claim() 核查 LLM 声称的参数类型
     """
 
-    def __init__(self, registry_path: str = "data/parameter_registry.json"):
-        self.registry_path = registry_path
+    def __init__(self, space_id: str = "default", registry_path: Optional[str] = None):
+        self.space_id = normalize_space_id(space_id)
+        self.registry_path = str(
+            registry_path or get_space_params_file(self.space_id)
+        )
         self.registry: Dict = self._load()
 
     # ------------------------------------------------------------------
