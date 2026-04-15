@@ -8,8 +8,8 @@ class RetrieverEngine:
     Core RAG Retrieval Engine (Task 7)
     Orchestrates initial vector search and subsequent reranking.
     """
-    def __init__(self):
-        self.vector_store = VectorStoreAdapter()
+    def __init__(self, space_id: str = "default"):
+        self.vector_store = VectorStoreAdapter(space_id=space_id)
         self.embedding_manager = EmbeddingManager()
         self.reranker = CrossEncoderReranker()
 

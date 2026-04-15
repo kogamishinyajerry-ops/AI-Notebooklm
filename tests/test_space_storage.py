@@ -11,6 +11,7 @@ sys.modules.setdefault("core.llm", llm_package)
 sys.modules["core.llm.client"] = llm_client
 
 import apps.api.main as main
+import core.retrieval.vector_store as vector_store
 
 
 class DummyIngestionService:
@@ -23,12 +24,27 @@ class DummyIngestionService:
 
 
 class DummyRetriever:
+    def __init__(self, source_prefix: str = ""):
+        self.source_prefix = source_prefix
+
     def get_by_source(self, filename: str, limit: int = 10):
         return [
             {
-                "text": f"{filename} preview chunk",
+                "text": f"{self.source_prefix}{filename} preview chunk",
                 "metadata": {
-                    "source": filename,
+                    "source": f"{self.source_prefix}{filename}",
+                    "page": "1",
+                    "bbox": [10, 20, 30, 40],
+                },
+            }
+        ]
+
+    def retrieve(self, query: str, top_k: int = 5, final_k: int = 3):
+        return [
+            {
+                "text": f"{self.source_prefix}context for {query}",
+                "metadata": {
+                    "source": f"{self.source_prefix}source.pdf",
                     "page": "1",
                     "bbox": [10, 20, 30, 40],
                 },
@@ -68,8 +84,12 @@ def test_notes_are_isolated_by_space(monkeypatch, tmp_path):
 def test_documents_upload_list_and_preview_are_space_scoped(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     ingestion = DummyIngestionService()
-    monkeypatch.setattr(main, "ingestion_service", ingestion)
-    monkeypatch.setattr(main, "retriever_engine", DummyRetriever())
+    retrievers = {
+        "space-a": DummyRetriever(),
+        "space-b": DummyRetriever(),
+    }
+    monkeypatch.setattr(main, "get_ingestion_service", lambda space_id: ingestion)
+    monkeypatch.setattr(main, "get_retriever_engine", lambda space_id: retrievers[space_id])
     client = TestClient(main.app)
 
     upload_a = client.post(
@@ -114,3 +134,58 @@ def test_default_space_can_fallback_to_legacy_docs(monkeypatch, tmp_path):
 
     assert docs.status_code == 200
     assert docs.json() == [{"filename": "legacy.pdf", "display_name": "legacy.pdf"}]
+
+
+def test_vector_store_scopes_collections_by_space(monkeypatch):
+    created = []
+
+    class FakeCollection:
+        def add(self, **kwargs):
+            return None
+
+        def query(self, **kwargs):
+            return {}
+
+        def get(self, **kwargs):
+            return {"documents": [], "metadatas": []}
+
+    class FakeClient:
+        def __init__(self, path: str):
+            self.path = path
+
+        def get_or_create_collection(self, name: str):
+            created.append(name)
+            return FakeCollection()
+
+    monkeypatch.setattr(vector_store.chromadb, "PersistentClient", FakeClient)
+
+    vector_store.VectorStoreAdapter(space_id="space-a")
+    vector_store.VectorStoreAdapter(space_id="space-b")
+
+    assert created == ["space_space-a", "space_space-b"]
+
+
+def test_chat_route_uses_space_specific_retriever(monkeypatch):
+    retrievers = {
+        "space-a": DummyRetriever("a-"),
+        "space-b": DummyRetriever("b-"),
+    }
+    monkeypatch.setattr(main, "get_retriever_engine", lambda space_id: retrievers[space_id])
+    monkeypatch.setattr(
+        main,
+        "invoke_local_llm",
+        lambda system_prompt, user_query: (
+            "<citation src='a-source.pdf' page='1'>A citation</citation>"
+            if "a-context" in system_prompt or "a-" in system_prompt
+            else "<citation src='b-source.pdf' page='1'>B citation</citation>"
+        ),
+    )
+
+    client = TestClient(main.app)
+    response_a = client.post("/api/v1/chat", json={"query": "test", "space_id": "space-a"})
+    response_b = client.post("/api/v1/chat", json={"query": "test", "space_id": "space-b"})
+
+    assert response_a.status_code == 200
+    assert response_b.status_code == 200
+    assert response_a.json()["citations"][0]["source_file"] == "a-source.pdf"
+    assert response_b.json()["citations"][0]["source_file"] == "b-source.pdf"
