@@ -12,6 +12,7 @@ import requests
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from services.ingestion.service import IngestionService
+from core.ingestion.transaction import IngestTransaction, iter_space_ids, recover_incomplete_transactions
 from core.retrieval.retriever import RetrieverEngine
 from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
 from core.governance.gateway import AntiHallucinationGateway
@@ -21,6 +22,16 @@ app = FastAPI(title="COMAC Intelligent NotebookLM API")
 # Initialize shared services
 ingestion_service = IngestionService()
 retriever_engine = RetrieverEngine()
+
+
+@app.on_event("startup")
+def recover_ingestion_transactions():
+    for space_id in iter_space_ids():
+        recover_incomplete_transactions(
+            space_id,
+            vector_store=ingestion_service.vector_store,
+            registry=getattr(ingestion_service, "parameter_registry", None),
+        )
 
 # Mount static files
 static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
@@ -120,13 +131,24 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
     upload_dir = "data/docs"
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
-    
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    transaction = IngestTransaction(space_id=space_id)
     
     try:
-        chunk_count = ingestion_service.process_file(file_path)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        transaction.record_file(file_path)
+
+        chunk_count = ingestion_service.process_file(
+            file_path,
+            space_id=space_id,
+            transaction=transaction,
+        )
     except Exception as e:
+        if transaction.status == "in_progress":
+            transaction.rollback(
+                vector_store=ingestion_service.vector_store,
+                registry=getattr(ingestion_service, "parameter_registry", None),
+            )
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
     
     return {
