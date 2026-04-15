@@ -6,6 +6,7 @@ from core.ingestion.transaction import (
     cleanup_committed_transactions,
     recover_incomplete_transactions,
     summarize_transaction_health,
+    resolve_space_path,
 )
 
 
@@ -116,6 +117,16 @@ def test_recover_skips_committed(tmp_path):
     assert read_journal(tx)["status"] == "committed"
 
 
+def test_recover_skips_corrupt_journal(tmp_path):
+    tx_dir = resolve_space_path("space-a", ".transactions", base_dir=tmp_path)
+    tx_dir.mkdir(parents=True)
+    (tx_dir / "broken.json").write_text("{not-json", encoding="utf-8")
+
+    recovered = recover_incomplete_transactions("space-a", base_dir=tmp_path)
+
+    assert recovered == 0
+
+
 def test_commit_cleans_old_committed_journals(tmp_path):
     old_tx = IngestTransaction("space-a", ingest_id="old", base_dir=tmp_path)
     old_tx.commit()
@@ -141,16 +152,28 @@ def test_cleanup_preserves_recent_committed_journals(tmp_path):
 
 
 def test_summarize_transaction_health_counts_in_progress_by_space(tmp_path):
-    IngestTransaction("space-a", ingest_id="in-progress-a", base_dir=tmp_path)
+    in_progress = IngestTransaction("space-a", ingest_id="in-progress-a", base_dir=tmp_path)
+    journal = read_journal(in_progress)
+    journal["started_at"] = (datetime.now(timezone.utc) - timedelta(seconds=42)).isoformat()
+    in_progress.journal_path.write_text(json.dumps(journal), encoding="utf-8")
     committed = IngestTransaction("space-b", ingest_id="committed-b", base_dir=tmp_path)
+    committed.commit()
+
+    health = summarize_transaction_health(base_dir=tmp_path, now=datetime.now(timezone.utc))
+
+    assert health["in_progress"] == 1
+    assert health["spaces"] == {
+        "space-a": 1,
+        "space-b": 0,
+    }
+    assert health["oldest_pending_transaction_age_seconds"] >= 42
+
+
+def test_summarize_transaction_health_has_no_pending_age_without_in_progress(tmp_path):
+    committed = IngestTransaction("space-a", ingest_id="committed", base_dir=tmp_path)
     committed.commit()
 
     health = summarize_transaction_health(base_dir=tmp_path)
 
-    assert health == {
-        "in_progress": 1,
-        "spaces": {
-            "space-a": 1,
-            "space-b": 0,
-        },
-    }
+    assert health["in_progress"] == 0
+    assert health["oldest_pending_transaction_age_seconds"] is None

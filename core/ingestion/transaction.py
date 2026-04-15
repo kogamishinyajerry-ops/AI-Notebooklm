@@ -274,11 +274,52 @@ def count_incomplete_transactions(
     return count
 
 
-def summarize_transaction_health(base_dir: str | Path = DEFAULT_SPACES_DIR) -> dict[str, Any]:
+def oldest_incomplete_transaction_started_at(
+    space_id: str,
+    base_dir: str | Path = DEFAULT_SPACES_DIR,
+) -> datetime | None:
+    tx_dir = resolve_space_path(space_id, ".transactions", base_dir=base_dir)
+    if not tx_dir.exists():
+        return None
+
+    oldest: datetime | None = None
+    for journal_file in sorted(tx_dir.glob("*.json")):
+        try:
+            data = json.loads(journal_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        if data.get("status") != "in_progress":
+            continue
+
+        started_at = parse_journal_datetime(data.get("started_at"))
+        if started_at is not None and (oldest is None or started_at < oldest):
+            oldest = started_at
+
+    return oldest
+
+
+def summarize_transaction_health(
+    base_dir: str | Path = DEFAULT_SPACES_DIR,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     spaces: dict[str, int] = {}
+    oldest_started_at: datetime | None = None
     for space_id in iter_space_ids(base_dir=base_dir):
         spaces[space_id] = count_incomplete_transactions(space_id, base_dir=base_dir)
+        space_oldest = oldest_incomplete_transaction_started_at(space_id, base_dir=base_dir)
+        if space_oldest is not None and (oldest_started_at is None or space_oldest < oldest_started_at):
+            oldest_started_at = space_oldest
+
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    oldest_age_seconds = None
+    if oldest_started_at is not None:
+        oldest_age_seconds = max(0, int((current_time - oldest_started_at).total_seconds()))
+
     return {
         "in_progress": sum(spaces.values()),
+        "oldest_pending_transaction_age_seconds": oldest_age_seconds,
         "spaces": spaces,
     }

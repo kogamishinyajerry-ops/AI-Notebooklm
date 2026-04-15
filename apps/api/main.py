@@ -14,6 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from services.ingestion.service import IngestionService
 from core.ingestion.transaction import (
     IngestTransaction,
+    cleanup_committed_transactions,
     iter_space_ids,
     recover_incomplete_transactions,
     summarize_transaction_health,
@@ -37,6 +38,7 @@ def recover_ingestion_transactions():
             vector_store=ingestion_service.vector_store,
             registry=getattr(ingestion_service, "parameter_registry", None),
         )
+        cleanup_committed_transactions(space_id)
 
 # Mount static files
 static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
