@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
+from pathlib import Path
 import shutil
 import os
 import sys
@@ -23,12 +24,17 @@ from core.ingestion.transaction import (
 from core.retrieval.retriever import RetrieverEngine
 from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
 from core.governance.gateway import AntiHallucinationGateway
+from core.models.source import SourceStatus
+from core.storage.notebook_store import NotebookStore
+from core.storage.source_registry import SourceRegistry
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
 
 # Initialize shared services
 ingestion_service = IngestionService()
 retriever_engine = RetrieverEngine()
+notebook_store = NotebookStore()
+source_registry = SourceRegistry()
 
 
 @app.on_event("startup")
@@ -37,9 +43,13 @@ def recover_ingestion_transactions():
         recover_incomplete_transactions(
             space_id,
             vector_store=ingestion_service.vector_store,
-            registry=getattr(ingestion_service, "parameter_registry", None),
+            registry=source_registry,
+            base_dir=source_registry.spaces_dir,
         )
-        cleanup_committed_transactions(space_id)
+        cleanup_committed_transactions(space_id, base_dir=source_registry.spaces_dir)
+        notebook = notebook_store.get(space_id)
+        if notebook is not None:
+            notebook_store.update(space_id, source_count=len(source_registry.list_by_notebook(space_id)))
 
 # Mount static files
 static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
@@ -66,6 +76,9 @@ class ChatResponse(BaseModel):
     is_fully_verified: bool
     citations: List[Citation]
 
+class NotebookCreateRequest(BaseModel):
+    name: str
+
 # Routes
 @app.get("/health")
 def health_check():
@@ -76,13 +89,75 @@ def api_health_check():
     return {
         "status": "ok",
         "service": "COMAC NotebookLM",
-        "transactions": summarize_transaction_health(),
+        "transactions": summarize_transaction_health(base_dir=source_registry.spaces_dir),
     }
 
 @app.post("/api/v1/spaces")
 def create_space(name: str):
-    """Creates a new knowledge space (collection in vector db)."""
-    return {"space_id": "mock-id-123", "name": name}
+    """Legacy alias for creating a notebook-backed knowledge space."""
+    try:
+        notebook = notebook_store.create(name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"space_id": notebook.id, "name": notebook.name}
+
+@app.post("/api/v1/notebooks", status_code=201)
+def create_notebook(request: NotebookCreateRequest):
+    try:
+        notebook = notebook_store.create(request.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return notebook.to_dict()
+
+@app.get("/api/v1/notebooks")
+def list_notebooks():
+    return [notebook.to_dict() for notebook in notebook_store.list_all()]
+
+@app.get("/api/v1/notebooks/{notebook_id}")
+def get_notebook(notebook_id: str):
+    notebook = notebook_store.get(notebook_id)
+    if notebook is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return notebook.to_dict()
+
+@app.delete("/api/v1/notebooks/{notebook_id}", status_code=204)
+def delete_notebook(notebook_id: str):
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    for source in source_registry.list_by_notebook(notebook_id):
+        ingestion_service.vector_store.delete(where={"source_id": source.id})
+
+    if not notebook_store.delete(notebook_id):
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+@app.get("/api/v1/notebooks/{notebook_id}/sources")
+def list_sources(notebook_id: str):
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return [source.to_dict() for source in source_registry.list_by_notebook(notebook_id)]
+
+@app.get("/api/v1/notebooks/{notebook_id}/sources/{source_id}")
+def get_source(notebook_id: str, source_id: str):
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    source = source_registry.get(notebook_id, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source.to_dict()
+
+@app.delete("/api/v1/notebooks/{notebook_id}/sources/{source_id}", status_code=204)
+def delete_source(notebook_id: str, source_id: str):
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    source = source_registry.get(notebook_id, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    ingestion_service.vector_store.delete(where={"source_id": source_id})
+    Path(source.file_path).unlink(missing_ok=True)
+    source_registry.delete(notebook_id, source_id)
+    notebook_store.increment_source_count(notebook_id, -1)
 
 def invoke_local_llm(system_prompt: str, user_query: str) -> str:
     """Invokes local vLLM (Qwen-2.5/GLM-4) via OpenAI-compatible API."""
@@ -143,29 +218,51 @@ async def chat_endpoint(request: ChatRequest):
         citations=citations_data
     )
 
-@app.post("/api/v1/documents/upload")
-async def upload_document(space_id: str, file: UploadFile = File(...)):
+@app.post("/api/v1/notebooks/{notebook_id}/sources/upload")
+async def upload_source(notebook_id: str, file: UploadFile = File(...)):
     """Uploads and triggers ingestion for a document."""
-    upload_dir = "data/docs"
+    notebook = notebook_store.get(notebook_id)
+    if notebook is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    upload_dir = source_registry.spaces_dir / notebook_id / "docs"
     os.makedirs(upload_dir, exist_ok=True)
     try:
         file_path = safe_upload_path(upload_dir, file.filename, file.content_type)
         validate_pdf_magic(file.file)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    transaction = IngestTransaction(space_id=space_id)
+
+    source = source_registry.register(notebook_id, file_path.name, str(file_path))
+    notebook_store.increment_source_count(notebook_id, 1)
+    transaction = IngestTransaction(space_id=notebook_id, base_dir=source_registry.spaces_dir)
+    transaction.record_source(notebook_id, source.id)
     
     try:
+        source_registry.update_status(notebook_id, source.id, SourceStatus.PROCESSING)
+
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         transaction.record_file(file_path)
 
-        chunk_count = ingestion_service.process_file(
+        chunk_count, page_count = ingestion_service.process_file(
             str(file_path),
-            space_id=space_id,
+            space_id=notebook_id,
+            source_id=source.id,
             transaction=transaction,
         )
+        source = source_registry.update_status(
+            notebook_id,
+            source.id,
+            SourceStatus.READY,
+            page_count=page_count,
+            chunk_count=chunk_count,
+        )
     except Exception as e:
+        try:
+            source_registry.update_status(notebook_id, source.id, SourceStatus.FAILED, error_message=str(e))
+        except Exception:
+            pass
         if transaction.status == "in_progress":
             transaction.rollback(
                 vector_store=ingestion_service.vector_store,
@@ -174,8 +271,16 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
     
     return {
-        "filename": file_path.name,
-        "space_id": space_id,
+        "source": source.to_dict(),
+        "filename": source.filename,
+        "space_id": notebook_id,
         "chunks_indexed": chunk_count,
         "status": "completed"
     }
+
+@app.post("/api/v1/documents/upload")
+async def upload_document(space_id: str, file: UploadFile = File(...)):
+    """Legacy upload route, backed by notebook sources."""
+    if notebook_store.get(space_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return await upload_source(space_id, file)

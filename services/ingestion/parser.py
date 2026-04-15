@@ -15,6 +15,10 @@ class PDFParser:
         self.file_path = file_path
         self.doc = fitz.open(file_path)
 
+    @property
+    def page_count(self) -> int:
+        return len(self.doc)
+
     def extract_chunks(self) -> List[DocumentChunk]:
         """
         Parses the PDF and returns a list of chunks grouped by page.

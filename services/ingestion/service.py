@@ -22,8 +22,9 @@ class IngestionService:
         self,
         file_path: str,
         space_id: str = "default",
+        source_id: str | None = None,
         transaction: IngestTransaction | None = None,
-    ):
+    ) -> tuple[int, int]:
         tx = transaction or IngestTransaction(space_id=space_id)
 
         try:
@@ -33,6 +34,7 @@ class IngestionService:
             # 1. Parse
             parser = PDFParser(file_path)
             try:
+                page_count = parser.page_count
                 blocks = parser.extract_chunks()
             finally:
                 parser.close()
@@ -43,6 +45,10 @@ class IngestionService:
             # 3. Embed & Store
             texts = [c.text for c in chunks]
             metadatas = [c.metadata for c in chunks]
+            if source_id is not None:
+                for metadata in metadatas:
+                    metadata["source_id"] = source_id
+                    metadata["space_id"] = space_id
 
             # In a real environment, we'd batch this to avoid memory issues
             embeddings = self.embedding_manager.encode(texts)
@@ -59,7 +65,7 @@ class IngestionService:
             )
 
             tx.commit()
-            return len(chunks)
+            return len(chunks), page_count
         except Exception:
             if tx.status == "in_progress":
                 tx.rollback(
