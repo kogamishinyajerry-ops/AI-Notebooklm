@@ -28,7 +28,7 @@ let citationLibrary = JSON.parse(localStorage.getItem('comac_citation_library') 
 
 /**
  * artifacts: 已生成的衍生产物列表（Gap D Task D-3）
- * 结构: [{id, artifact_type, topic, content, generated_at}]
+ * 结构: [{id, artifact_type, topic, content, generated_at, is_fully_verified, citations}]
  */
 let artifacts = [];
 
@@ -470,6 +470,9 @@ function renderArtifactList() {
         const card = document.createElement('div');
         card.className = 'artifact-card';
         const typeLabel = art.artifact_type === 'comparison_table' ? '📊 对比表' : '📝 技术简报';
+        const verificationBadge = art.is_fully_verified
+            ? '<span class="badge" style="background:#e8f5e9;color:#1b5e20;">已验证</span>'
+            : '<span class="badge" style="background:#fff4e5;color:#a15c00;">待核验</span>';
         card.innerHTML = `
             <div class="artifact-header">
                 <span class="artifact-type-tag">${typeLabel}</span>
@@ -480,7 +483,11 @@ function renderArtifactList() {
                 </div>
             </div>
             <div class="artifact-content">${renderMarkdown(art.content)}</div>
-            <div class="artifact-footer">生成时间：${art.generated_at}</div>
+            ${renderArtifactCitationRow(art.citations || [])}
+            <div class="artifact-footer" style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+                <span>生成时间：${art.generated_at}</span>
+                ${verificationBadge}
+            </div>
         `;
         ui.artifactList.appendChild(card);
     });
@@ -507,12 +514,50 @@ window.removeArtifact = (idx) => {
 // 引用源跳转
 // ---------------------------------------------------------------------------
 
+function escapeJsString(value) {
+    return String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r?\n/g, ' ');
+}
+
+function buildCitationPayload(citation) {
+    const bbox = Array.isArray(citation.bbox) ? citation.bbox : [0, 0, 0, 0];
+    const pageNumber = citation.page_number ?? 0;
+    return `{source_file:'${escapeJsString(citation.source_file)}',page_number:${JSON.stringify(pageNumber)},content:'${escapeJsString(citation.content || '')}',bbox:${JSON.stringify(bbox)}}`;
+}
+
+function renderCitationActions(citation) {
+    const safeSrc = escapeJsString(citation.source_file);
+    const safePage = escapeJsString(citation.page_number);
+    const label = escapeHtml(`${citation.source_file} p.${citation.page_number}`);
+    return `<span class="inline-citation">
+        <button class="citation-pill" onclick="showSource('${safeSrc}','${safePage}')">${label}</button>
+        <button class="pin-note-btn" onclick="saveToCitationLibrary(${buildCitationPayload(citation)})">📌</button>
+    </span>`;
+}
+
+function renderArtifactCitationRow(citations) {
+    if (!citations || citations.length === 0) return '';
+    return `<div class="citation-row">${citations.map(renderCitationActions).join('')}</div>`;
+}
+
+function findCitationBySourcePage(src, page) {
+    const targetSrc = String(src);
+    const targetPage = String(page);
+    const artifactCitations = artifacts.flatMap(art => art.citations || []);
+    const pools = [...(window.currentCitations || []), ...citationLibrary, ...artifactCitations];
+    return pools.find(
+        citation =>
+            String(citation.source_file) === targetSrc &&
+            String(citation.page_number) === targetPage
+    );
+}
+
 window.showSource = (src, page) => {
     selectDocument(src).then(() => {
-        const citation = window.currentCitations?.find(
-            c => c.source_file === src && c.page_number == page
-        );
-        if (citation && citation.bbox) {
+        const citation = findCitationBySourcePage(src, page);
+        if (citation && Array.isArray(citation.bbox) && citation.bbox.length === 4) {
             const hl = document.getElementById('highlight');
             if (hl) {
                 hl.style.display = 'block';
@@ -533,13 +578,12 @@ window.showSource = (src, page) => {
 function formatAssistantResponse(text) {
     return text.replace(
         /<citation src=['"]([^'"]+)['"] page=['"]([^'"]+)['"]>(.*?)<\/citation>/g,
-        (match, src, page, content) => {
-            const safeContent = content.replace(/'/g, "\\'");
-            return `<span class="inline-citation">
-                <button class="citation-pill" onclick="showSource('${src}','${page}')">${src} p.${page}</button>
-                <button class="pin-note-btn" onclick="saveToCitationLibrary({source_file:'${src}',page_number:${page},content:'${safeContent}',bbox:[0,0,0,0]})">📌</button>
-            </span>`;
-        }
+        (match, src, page, content) => renderCitationActions({
+            source_file: src,
+            page_number: page,
+            content,
+            bbox: [0, 0, 0, 0],
+        })
     );
 }
 
