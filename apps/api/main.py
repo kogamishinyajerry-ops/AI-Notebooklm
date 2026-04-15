@@ -241,6 +241,24 @@ _ARTIFACT_SYSTEM = """你是 COMAC 适航知识库的技术文档生成引擎。
 所有数值声称必须附 <citation src="..." page="...">内容</citation> 标记。
 """
 
+
+def _artifact_contexts_from_citations(
+    cited_sources: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    contexts: List[Dict[str, Any]] = []
+    for source in cited_sources or []:
+        contexts.append(
+            {
+                "text": source.get("content", ""),
+                "metadata": {
+                    "source": source.get("source_file", "?"),
+                    "page": str(source.get("page_number", "?")),
+                    "bbox": source.get("bbox") or [0, 0, 0, 0],
+                },
+            }
+        )
+    return contexts
+
 @app.post("/api/v1/artifacts/generate")
 async def generate_artifact(request: ArtifactRequest):
     """
@@ -252,23 +270,24 @@ async def generate_artifact(request: ArtifactRequest):
 
     C2 合规：LLM 生成结果经 Gateway 验证，保留完整引用链。
     """
-    # 构建来源上下文
-    source_context = ""
     if request.cited_sources:
-        for s in request.cited_sources:
-            source_context += (
-                f"\n来源: {s.get('source_file','?')} 第{s.get('page_number','?')}页\n"
-                f"内容: {s.get('content','')}\n"
-            )
+        contexts = _artifact_contexts_from_citations(request.cited_sources)
     else:
-        # 从向量库检索
         contexts = get_retriever_engine().retrieve(request.topic, top_k=5, final_k=3)
-        for ctx in contexts:
-            source_context += (
-                f"\n来源: {ctx['metadata'].get('source','?')} "
-                f"第{ctx['metadata'].get('page','?')}页\n"
-                f"内容: {ctx['text']}\n"
-            )
+
+    if not contexts:
+        contexts = [{
+            "text": "暂无相关文档上下文。",
+            "metadata": {"source": "system", "page": "0", "bbox": [0, 0, 0, 0]},
+        }]
+
+    source_context = ""
+    for ctx in contexts:
+        source_context += (
+            f"\n来源: {ctx['metadata'].get('source','?')} "
+            f"第{ctx['metadata'].get('page','?')}页\n"
+            f"内容: {ctx.get('text','')}\n"
+        )
 
     artifact_instruction = {
         "comparison_table": f"请生成一份关于「{request.topic}」的 Markdown 参数对比表格，包含至少 3 行数据，每行都要有具体数值和来源引用。",
@@ -278,12 +297,17 @@ async def generate_artifact(request: ArtifactRequest):
     user_prompt = f"{artifact_instruction}\n\n可用来源材料：\n{source_context}"
 
     raw = call_local_llm(_ARTIFACT_SYSTEM, user_prompt)
+    is_valid, safe_response, verified_citations = AntiHallucinationGateway.validate_and_parse(
+        raw, contexts
+    )
 
     return {
         "artifact_type": request.artifact_type,
         "topic": request.topic,
-        "content": raw,
+        "content": safe_response,
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "is_fully_verified": is_valid,
+        "citations": verified_citations,
     }
 
 

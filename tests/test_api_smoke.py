@@ -65,3 +65,40 @@ def test_chat_stream_endpoint_emits_sse_events(monkeypatch):
     assert '"type": "delta"' in body
     assert '"type": "citations"' in body
     assert '"type": "done"' in body
+
+
+def test_artifact_endpoint_returns_verified_citations(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "call_local_llm",
+        lambda system_prompt, user_query: (
+            "技术简报：飞控系统的稳定性依赖控制律设计。"
+            '<citation src="manual.pdf" page="1">飞控系统依赖控制律保持姿态稳定。</citation>'
+        ),
+    )
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/v1/artifacts/generate",
+        json={
+            "artifact_type": "technical_brief",
+            "topic": "飞控系统稳定性",
+            "space_id": "test-space",
+            "cited_sources": [
+                {
+                    "source_file": "manual.pdf",
+                    "page_number": 1,
+                    "content": "飞控系统依赖控制律保持姿态稳定。",
+                    "bbox": [10, 20, 30, 40],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_type"] == "technical_brief"
+    assert payload["is_fully_verified"] is True
+    assert payload["citations"][0]["source_file"] == "manual.pdf"
+    assert payload["citations"][0]["page_number"] == 1
+    assert "技术简报" in payload["content"]
