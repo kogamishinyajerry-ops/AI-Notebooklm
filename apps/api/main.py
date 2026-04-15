@@ -15,7 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from services.ingestion.service import IngestionService
 from core.retrieval.retriever import RetrieverEngine
 from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
-from core.governance.gateway import AntiHallucinationGateway
+from core.governance.gateway import get_gateway, invalidate_gateway_cache
 from core.storage.space_resolver import get_space_docs_dir, get_space_notes_file, normalize_space_id
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
@@ -181,7 +181,8 @@ async def chat_endpoint(request: ChatRequest):
     raw_response = invoke_local_llm(system_prompt, request.query)
     
     # 4. Anti-Hallucination Gate
-    is_valid, safe_response, verified_citations = AntiHallucinationGateway.validate_and_parse(raw_response, contexts)
+    gateway = get_gateway(request.space_id)
+    is_valid, safe_response, verified_citations = gateway.validate_and_parse(raw_response, contexts)
     
     citations_data = [
         Citation(
@@ -210,6 +211,7 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
     
     try:
         chunk_count = get_ingestion_service(space_id).process_file(str(file_path))
+        invalidate_gateway_cache(space_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
     

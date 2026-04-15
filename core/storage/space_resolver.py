@@ -6,6 +6,7 @@ DATA_DIR = Path("data")
 SPACES_DIR = DATA_DIR / "spaces"
 LEGACY_DOCS_DIR = DATA_DIR / "docs"
 LEGACY_NOTES_FILE = DATA_DIR / "notes.json"
+LEGACY_PARAMS_FILE = DATA_DIR / "parameter_registry.json"
 
 
 def normalize_space_id(space_id: str) -> str:
@@ -51,3 +52,18 @@ def get_space_notes_file(space_id: str, *, for_write: bool = False) -> Path:
         return LEGACY_NOTES_FILE
 
     return notes_file
+
+
+def get_space_params_file(space_id: str, *, for_write: bool = False) -> Path:
+    params_file = get_space_root(space_id, ensure_exists=for_write) / "params.json"
+    if for_write:
+        params_file.parent.mkdir(parents=True, exist_ok=True)
+        return params_file
+
+    if params_file.exists():
+        return params_file
+
+    if normalize_space_id(space_id) == "default" and LEGACY_PARAMS_FILE.exists():
+        return LEGACY_PARAMS_FILE
+
+    return params_file
