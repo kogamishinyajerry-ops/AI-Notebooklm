@@ -10,7 +10,8 @@ class VectorStoreAdapter:
     Ensures data privacy (C1) by running as a local persistent library.
     """
     def __init__(self, persist_directory: str = "data/vector_db"):
-        self.client = chromadb.PersistentClient(path=persist_directory)
+        settings = Settings(anonymized_telemetry=False)
+        self.client = chromadb.PersistentClient(path=persist_directory, settings=settings)
         self.collection_name = "doc_knowledge_base"
         self.collection = self.client.get_or_create_collection(name=self.collection_name)
 
