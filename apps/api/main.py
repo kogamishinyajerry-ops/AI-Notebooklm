@@ -139,7 +139,7 @@ def get_notes():
 @app.post("/api/v1/notes")
 def create_note(note: Note):
     notes = load_notes()
-    notes.append(note.dict())
+    notes.append(note.model_dump())
     save_notes(notes)
     return {"status": "success"}
 
