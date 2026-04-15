@@ -39,3 +39,12 @@ class RetrieverEngine:
         # 3. Rerank
         best_chunks = self.reranker.rerank(query, formatted_chunks, top_n=final_k)
         return best_chunks
+
+    def get_by_source(self, filename: str, limit: int = 10) -> List[Dict[str, Any]]:
+        results = self.vector_store.collection.get(where={"source": filename}, limit=limit)
+        documents = results.get("documents", [])
+        metadatas = results.get("metadatas", [])
+        return [
+            {"text": doc, "metadata": meta}
+            for doc, meta in zip(documents, metadatas)
+        ]

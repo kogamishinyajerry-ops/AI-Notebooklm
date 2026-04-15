@@ -2,11 +2,12 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import shutil
 import os
 import sys
 import requests
+import json
 
 # Ensure root is in path for local service imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -15,6 +16,7 @@ from services.ingestion.service import IngestionService
 from core.retrieval.retriever import RetrieverEngine
 from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
 from core.governance.gateway import AntiHallucinationGateway
+from core.storage.space_resolver import get_space_docs_dir, get_space_notes_file
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
 
@@ -47,15 +49,84 @@ class ChatResponse(BaseModel):
     is_fully_verified: bool
     citations: List[Citation]
 
+
+class Note(BaseModel):
+    id: str
+    content: str
+    source_refs: List[Dict[str, Any]]
+    created_at: float
+
 # Routes
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "COMAC NotebookLM"}
 
+
+@app.get("/api/v1/notes")
+def get_notes(space_id: str):
+    return load_notes(space_id)
+
+
+@app.post("/api/v1/notes")
+def create_note(note: Note, space_id: str):
+    notes = load_notes(space_id)
+    notes.append(note.model_dump())
+    save_notes(space_id, notes)
+    return {"status": "success"}
+
+
+@app.get("/api/v1/documents")
+def list_documents(space_id: str):
+    doc_dir = get_space_docs_dir(space_id)
+    if not doc_dir.exists():
+        return []
+    files = sorted(
+        file.name
+        for file in doc_dir.iterdir()
+        if file.is_file() and file.suffix.lower() == ".pdf"
+    )
+    return [{"filename": name, "display_name": name.replace("_", " ")} for name in files]
+
+
+@app.get("/api/v1/documents/{filename}/preview")
+def get_document_preview(filename: str, space_id: str):
+    safe_filename = sanitize_pdf_filename(filename)
+    doc_path = get_space_docs_dir(space_id) / safe_filename
+    if not doc_path.exists():
+        raise HTTPException(status_code=404, detail="Document not found in this space")
+    return retriever_engine.get_by_source(safe_filename, limit=10)
+
 @app.post("/api/v1/spaces")
 def create_space(name: str):
     """Creates a new knowledge space (collection in vector db)."""
     return {"space_id": "mock-id-123", "name": name}
+
+
+def sanitize_pdf_filename(filename: str) -> str:
+    normalized = (filename or "").replace("\\", "/")
+    safe_name = os.path.basename(normalized).strip()
+    if not safe_name or safe_name in {".", ".."}:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not safe_name.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
+    return safe_name
+
+
+def load_notes(space_id: str) -> List[Dict[str, Any]]:
+    notes_file = get_space_notes_file(space_id)
+    if not notes_file.exists():
+        return []
+    try:
+        with notes_file.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception:
+        return []
+
+
+def save_notes(space_id: str, notes: List[Dict[str, Any]]) -> None:
+    notes_file = get_space_notes_file(space_id, for_write=True)
+    with notes_file.open("w", encoding="utf-8") as handle:
+        json.dump(notes, handle, ensure_ascii=False, indent=2)
 
 def invoke_local_llm(system_prompt: str, user_query: str) -> str:
     """Invokes local vLLM (Qwen-2.5/GLM-4) via OpenAI-compatible API."""
@@ -117,20 +188,20 @@ async def chat_endpoint(request: ChatRequest):
 @app.post("/api/v1/documents/upload")
 async def upload_document(space_id: str, file: UploadFile = File(...)):
     """Uploads and triggers ingestion for a document."""
-    upload_dir = "data/docs"
-    os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, file.filename)
+    safe_filename = sanitize_pdf_filename(file.filename)
+    upload_dir = get_space_docs_dir(space_id, for_write=True)
+    file_path = upload_dir / safe_filename
     
-    with open(file_path, "wb") as buffer:
+    with file_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
     try:
-        chunk_count = ingestion_service.process_file(file_path)
+        chunk_count = ingestion_service.process_file(str(file_path))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
     
     return {
-        "filename": file.filename, 
+        "filename": safe_filename, 
         "space_id": space_id,
         "chunks_indexed": chunk_count,
         "status": "completed"
