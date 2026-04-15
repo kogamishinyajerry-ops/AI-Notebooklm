@@ -65,6 +65,35 @@ def test_chat_stream_endpoint_emits_sse_events(monkeypatch):
     assert '"type": "delta"' in body
     assert '"type": "citations"' in body
     assert '"type": "done"' in body
+    assert '"is_verified": true' in body
+    assert '"answer":' in body
+
+
+def test_chat_stream_endpoint_returns_safe_answer_on_gateway_failure(monkeypatch):
+    monkeypatch.setattr(main, "get_retriever_engine", lambda: DummyRetriever())
+
+    async def fake_stream_local_llm(system_prompt: str, user_query: str):
+        yield "未经校验的原始回答。"
+
+    monkeypatch.setattr(main, "stream_local_llm", fake_stream_local_llm)
+    monkeypatch.setattr(
+        main.AntiHallucinationGateway,
+        "validate_and_parse",
+        lambda llm_response, contexts: (False, "[拦截] 引用校验失败，已返回安全结果。", []),
+    )
+
+    client = TestClient(main.app)
+    with client.stream(
+        "POST",
+        "/api/v1/chat/stream",
+        json={"query": "请解释飞行控制律的核心要素。", "space_id": "test-space"},
+    ) as response:
+        body = "".join(chunk.decode("utf-8") for chunk in response.iter_bytes())
+
+    assert response.status_code == 200
+    assert '"type": "done"' in body
+    assert '"is_verified": false' in body
+    assert '[拦截] 引用校验失败，已返回安全结果。' in body
 
 
 def test_artifact_endpoint_returns_verified_citations(monkeypatch):

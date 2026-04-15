@@ -258,6 +258,7 @@ async function performStreamingChat(query) {
     if (ui.streamIndicator) ui.streamIndicator.style.display = 'flex';
 
     let fullText = '';
+    let citationsRendered = false;
 
     try {
         const response = await fetch('/api/v1/chat/stream', {
@@ -294,7 +295,7 @@ async function performStreamingChat(query) {
                 } else if (evt.type === 'citations') {
                     window.currentCitations = evt.citations;
                     // 渲染引用小结附在气泡下方
-                    if (evt.citations && evt.citations.length > 0) {
+                    if (evt.citations && evt.citations.length > 0 && !citationsRendered) {
                         const citRow = document.createElement('div');
                         citRow.className = 'citation-row';
                         evt.citations.forEach(c => {
@@ -311,9 +312,20 @@ async function performStreamingChat(query) {
                             citRow.appendChild(pin);
                         });
                         msgDiv.appendChild(citRow);
+                        citationsRendered = true;
                     }
 
                 } else if (evt.type === 'done') {
+                    if (evt.answer) {
+                        fullText = evt.answer;
+                        textSpan.innerHTML = formatAssistantResponse(fullText);
+                    }
+                    if (evt.is_verified === false) {
+                        const status = document.createElement('div');
+                        status.style.cssText = 'margin-top:8px;font-size:0.75rem;color:#a15c00;background:#fff4e5;border:1px solid #f3d19c;border-radius:8px;padding:8px 10px;';
+                        status.textContent = '该流式回答未完全通过校验，已自动切换为安全结果。';
+                        msgDiv.appendChild(status);
+                    }
                     // 流结束：移除游标和流式样式
                     cursorSpan.remove();
                     msgDiv.classList.remove('msg-streaming');
