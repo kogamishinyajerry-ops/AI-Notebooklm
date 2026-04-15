@@ -102,6 +102,16 @@ def save_notes(notes):
     os.makedirs(os.path.dirname(NOTES_FILE), exist_ok=True)
     with open(NOTES_FILE, "w") as f: json.dump(notes, f, indent=2)
 
+
+def sanitize_upload_filename(filename: str) -> str:
+    normalized = (filename or "").replace("\\", "/")
+    safe_name = os.path.basename(normalized).strip()
+    if not safe_name or safe_name in {".", ".."}:
+        raise HTTPException(status_code=400, detail="Invalid upload filename")
+    if not safe_name.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
+    return safe_name
+
 # --- Routes ---
 @app.get("/health")
 def health_check():
@@ -390,12 +400,13 @@ def export_studio_notes():
 
 @app.post("/api/v1/documents/upload")
 async def upload_document(space_id: str, file: UploadFile = File(...)):
+    safe_filename = sanitize_upload_filename(file.filename)
     upload_dir = "data/docs"
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, file.filename)
+    file_path = os.path.join(upload_dir, safe_filename)
     with open(file_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
     try:
         chunk_count = get_ingestion_service().process_file(file_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
-    return {"filename": file.filename, "space_id": space_id, "chunks_indexed": chunk_count, "status": "completed"}
+    return {"filename": safe_filename, "space_id": space_id, "chunks_indexed": chunk_count, "status": "completed"}

@@ -56,6 +56,15 @@ class DummyCommunitySummarizer:
         }
 
 
+class DummyIngestionService:
+    def __init__(self):
+        self.paths = []
+
+    def process_file(self, file_path: str):
+        self.paths.append(file_path)
+        return 7
+
+
 def test_chat_endpoint_returns_grounded_citations(monkeypatch):
     monkeypatch.setattr(main, "get_retriever_engine", lambda: DummyRetriever())
     monkeypatch.setattr(
@@ -194,3 +203,58 @@ def test_knowledge_graph_rebuild_endpoint_returns_report(monkeypatch):
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["report"]["communities_indexed"] == 1
+
+
+def test_upload_document_sanitizes_filename_and_indexes(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    ingestion = DummyIngestionService()
+    monkeypatch.setattr(main, "get_ingestion_service", lambda: ingestion)
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/v1/documents/upload",
+        params={"space_id": "test-space"},
+        files={"file": ("../../unsafe.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filename"] == "unsafe.pdf"
+    assert payload["chunks_indexed"] == 7
+    assert ingestion.paths[0].endswith("data/docs/unsafe.pdf")
+    assert (tmp_path / "data" / "docs" / "unsafe.pdf").exists()
+
+
+def test_upload_document_rejects_non_pdf(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/v1/documents/upload",
+        params={"space_id": "test-space"},
+        files={"file": ("notes.txt", b"plain text", "text/plain")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Only PDF uploads are supported"
+
+
+def test_documents_list_and_preview_return_expected_payload(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    docs_dir = tmp_path / "data" / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "ops_manual.pdf").write_bytes(b"%PDF-1.4 fake")
+    monkeypatch.setattr(main, "get_retriever_engine", lambda: DummyRetriever())
+
+    client = TestClient(main.app)
+
+    list_response = client.get("/api/v1/documents")
+    assert list_response.status_code == 200
+    assert list_response.json() == [
+        {"filename": "ops_manual.pdf", "display_name": "ops manual.pdf"}
+    ]
+
+    preview_response = client.get("/api/v1/documents/ops_manual.pdf/preview")
+    assert preview_response.status_code == 200
+    preview_payload = preview_response.json()
+    assert preview_payload[0]["metadata"]["source"] == "manual.pdf"
