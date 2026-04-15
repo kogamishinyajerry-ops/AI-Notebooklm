@@ -43,12 +43,26 @@ class VectorStoreAdapter:
         if ids or where:
             self.collection.delete(ids=ids, where=where)
 
-    def query(self, query_embeddings: list[float], top_k: int = 5):
+    def query(
+        self,
+        query_embeddings: list[float],
+        top_k: int = 5,
+        where: dict | None = None,
+    ):
         """
         Queries the store for the most relevant chunks.
+
+        Args:
+            query_embeddings: Embedding vector for the query.
+            top_k: Number of results to return.
+            where: Optional ChromaDB metadata filter, e.g.
+                   ``{"source_id": {"$in": ["id1", "id2"]}}``
         """
-        results = self.collection.query(
-            query_embeddings=[query_embeddings],
-            n_results=top_k
-        )
+        kwargs: dict = {
+            "query_embeddings": [query_embeddings],
+            "n_results": top_k,
+        }
+        if where:
+            kwargs["where"] = where
+        results = self.collection.query(**kwargs)
         return results

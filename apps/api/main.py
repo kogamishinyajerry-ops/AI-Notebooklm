@@ -68,8 +68,15 @@ class Citation(BaseModel):
 
 class ChatRequest(BaseModel):
     query: str
-    space_id: str
+    # notebook_id is the canonical field; space_id is accepted as a legacy alias.
+    notebook_id: Optional[str] = None
+    space_id: Optional[str] = None
     history: Optional[List[dict]] = None
+
+    @property
+    def resolved_notebook_id(self) -> Optional[str]:
+        """Return notebook_id, falling back to space_id for legacy clients."""
+        return self.notebook_id or self.space_id
 
 class ChatResponse(BaseModel):
     answer: str
@@ -159,8 +166,18 @@ def delete_source(notebook_id: str, source_id: str):
     source_registry.delete(notebook_id, source_id)
     notebook_store.increment_source_count(notebook_id, -1)
 
+class LLMUnavailableError(Exception):
+    """Raised when the local vLLM service cannot be reached."""
+
+
 def invoke_local_llm(system_prompt: str, user_query: str) -> str:
-    """Invokes local vLLM (Qwen-2.5/GLM-4) via OpenAI-compatible API."""
+    """
+    Invokes local vLLM (Qwen-2.5/GLM-4) via OpenAI-compatible API.
+
+    Raises:
+        LLMUnavailableError: If the vLLM service is unreachable or returns
+            a non-2xx response, so callers can return HTTP 503.
+    """
     vllm_url = os.getenv("VLLM_URL", "http://localhost:8000/v1").rstrip("/")
     model_name = os.getenv("LOCAL_LLM_MODEL", "qwen-2.5")
     try:
@@ -170,52 +187,86 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
                 "model": model_name,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_query}
-                ]
+                    {"role": "user", "content": user_query},
+                ],
             },
-            timeout=5
+            timeout=30,
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
-    except Exception:
-        # Mock LLM generation logic if vLLM is offline
-        return "根据检索到的数据，<citation src='mock_source.pdf' page='1'>这部分是关于飞行控制律的描述</citation>。另外，还有一个幻觉：<citation src='non_existent.pdf' page='99'>错误的参数配置</citation>。"
+    except Exception as exc:
+        raise LLMUnavailableError(
+            f"Local LLM service unavailable at {vllm_url}: {exc}"
+        ) from exc
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     """
-    Core Q&A endpoint. 
-    Triggers RAG retrieval, LLM Prompting, and Gateway strict parsing.
+    Core Q&A endpoint.
+    Triggers RAG retrieval scoped to the notebook's sources, LLM generation,
+    and Gateway citation validation.
+
+    Returns HTTP 400 if the notebook does not exist.
+    Returns HTTP 503 if the local LLM service is unavailable.
     """
-    # 1. Retrieve
-    contexts = retriever_engine.retrieve(request.query, top_k=5, final_k=3)
-    
+    notebook_id = request.resolved_notebook_id
+
+    # 1. Resolve notebook and its source_ids for retrieval scoping
+    source_ids: list[str] | None = None
+    if notebook_id:
+        notebook = notebook_store.get(notebook_id)
+        if notebook is None:
+            raise HTTPException(status_code=400, detail=f"Notebook '{notebook_id}' not found")
+        sources = source_registry.list_by_notebook(notebook_id)
+        source_ids = [s.id for s in sources] if sources else []
+
+    # 2. Retrieve — scoped to this notebook's source_ids when available
+    contexts = retriever_engine.retrieve(
+        request.query,
+        top_k=5,
+        final_k=3,
+        source_ids=source_ids if source_ids else None,
+    )
+
     if not contexts:
-        contexts = [{"text": "这部分是关于飞行控制律的描述", "metadata": {"source": "mock_source.pdf", "page": "1", "bbox": [100, 100, 400, 150]}}]
-        
-    # 2. Build Prompt
+        return ChatResponse(
+            answer="未在当前知识库中检索到相关内容，请上传相关文档后再试。",
+            is_fully_verified=False,
+            citations=[],
+        )
+
+    # 3. Build Prompt
     context_str = build_context_block(contexts)
     system_prompt = QA_SYSTEM_PROMPT.format(context_blocks=context_str)
-    
-    # 3. Generate (LLM)
-    raw_response = invoke_local_llm(system_prompt, request.query)
-    
-    # 4. Anti-Hallucination Gate
-    is_valid, safe_response, verified_citations = AntiHallucinationGateway.validate_and_parse(raw_response, contexts)
-    
+
+    # 4. Generate (LLM) — raise 503 if service unavailable
+    try:
+        raw_response = invoke_local_llm(system_prompt, request.query)
+    except LLMUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"LLM service unavailable. Please ensure vLLM is running. ({exc})",
+        ) from exc
+
+    # 5. Anti-Hallucination Gate
+    is_valid, safe_response, verified_citations = AntiHallucinationGateway.validate_and_parse(
+        raw_response, contexts
+    )
+
     citations_data = [
         Citation(
             source_file=c["source_file"],
             page_number=c["page_number"],
             content=c["content"],
-            bbox=c["bbox"]
-        ) for c in verified_citations
+            bbox=c["bbox"],
+        )
+        for c in verified_citations
     ]
-    
+
     return ChatResponse(
         answer=safe_response,
         is_fully_verified=is_valid,
-        citations=citations_data
+        citations=citations_data,
     )
 
 @app.post("/api/v1/notebooks/{notebook_id}/sources/upload")
