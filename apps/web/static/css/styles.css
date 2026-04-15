@@ -1,180 +1,587 @@
 :root {
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --bg-accent: #334155;
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --accent-blue: #38bdf8;
-    --accent-indigo: #6366f1;
-    --danger: #ef4444;
-    --success: #22c55e;
-    --border: #334155;
-    --surface: rgba(30, 41, 59, 0.7);
+    --primary-blue: #1a73e8;
+    --accent-blue: #e8f0fe;
+    --primary-purple: #7c4dff;
+    --accent-purple: #f3e5f5;
+    --bg-light: #f8f9fa;
+    --border-color: #e0e0e0;
+    --text-main: #3c4043;
+    --text-muted: #5f6368;
+    --hover-bg: #f1f3f4;
 }
 
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, sans-serif; }
 
-body {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    height: 100vh;
-    overflow: hidden;
-}
+body { background: var(--bg-light); height: 100vh; overflow: hidden; color: var(--text-main); }
 
 .app-container {
     display: flex;
     height: 100vh;
-    width: 100vw;
 }
 
-/* Sidebar */
+/* Sidebar: Fixed Width */
 .sidebar {
     width: 260px;
-    background: var(--bg-secondary);
-    border-right: 1px solid var(--border);
+    background: white;
+    border-right: 1px solid var(--border-color);
+    padding: 20px;
     display: flex;
     flex-direction: column;
-    padding: 1.5rem;
+    flex-shrink: 0;
 }
 
-.logo {
-    font-size: 1.25rem;
-    font-weight: 700;
-    margin-bottom: 2rem;
-    color: var(--accent-blue);
+/* Main Workspace: Fluid */
+.main-workspace {
+    flex-grow: 1;
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    gap: 0; /* No gap because we use splitters */
+    padding: 12px;
+    background: #f1f3f4;
+    overflow: hidden;
 }
 
-.source-item {
-    background: var(--bg-accent);
-    padding: 0.75rem;
-    border-radius: 0.5rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.875rem;
-    cursor: pointer;
+/* BENTO CARDS */
+.bento-card {
+    background: white;
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+    min-width: 200px;
+}
+
+/* RESIZABLE COLUMNS (Task 49) */
+.col-resizable {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* GUTTER / SPLITTER */
+.gutter {
+    width: 8px;
+    background: transparent;
+    cursor: col-resize;
+    flex-shrink: 0;
     transition: background 0.2s;
 }
+.gutter:hover { background: rgba(26, 115, 232, 0.2); }
 
-.source-item:hover {
-    background: #475569;
-}
-
-/* Dual Pane Main */
-.main-content {
-    flex: 1;
+/* CARD COMPONENTS */
+.card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 500;
+    font-size: 0.85rem;
     display: flex;
-    overflow: hidden;
+    justify-content: space-between;
+    align-items: center;
+    background: white;
 }
 
-/* PDF Viewer Pane */
-.pdf-pane {
-    flex: 1.2;
-    background: var(--bg-accent);
-    margin: 1rem;
-    border-radius: 1rem;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-}
-
+/* PDF Viewport */
 .pdf-viewport {
-    flex: 1;
-    background: #525659;
-    position: relative;
-    overflow: auto;
-    display: flex;
-    justify-content: center;
-    padding: 2rem;
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #eef1f5;
 }
 
 .pdf-page-mock {
-    width: 100%;
-    max-width: 600px;
-    height: 800px;
     background: white;
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    min-height: 800px;
+    padding: 50px;
+    position: relative;
+    border-radius: 4px;
+}
+
+/* Chat Styles */
+.chat-history {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.msg-bubble {
+    padding: 12px 16px;
+    border-radius: 12px;
+    max-width: 85%;
+    font-size: 0.9rem;
+    line-height: 1.5;
     position: relative;
 }
 
-.highlight-overlay {
-    position: absolute;
-    background: rgba(56, 189, 248, 0.3);
-    border: 2px solid var(--accent-blue);
-    pointer-events: none;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    display: none;
+.msg-user {
+    align-self: flex-end;
+    background: var(--primary-blue);
+    color: white;
+    border-bottom-right-radius: 2px;
 }
 
-/* Chat Pane */
-.chat-pane {
-    flex: 0.8;
-    background: var(--bg-secondary);
-    margin: 1rem 1rem 1rem 0;
-    border-radius: 1rem;
+.msg-ai {
+    align-self: flex-start;
+    background: var(--hover-bg);
+    color: var(--text-main);
+    border-bottom-left-radius: 2px;
+}
+
+.chat-input-container {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.input-pill {
+    width: 100%;
+    padding: 12px 20px;
+    border-radius: 24px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-light);
+    outline: none;
+    transition: all 0.2s;
+}
+.input-pill:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 2px var(--accent-blue); }
+
+/* STUDIO CARDS (Task 50 & 51) */
+.notes-container {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--border);
+    gap: 12px;
 }
 
-.chat-history {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1.5rem;
-}
-
-.message {
-    margin-bottom: 1.5rem;
-    line-height: 1.6;
-}
-
-.message.user {
-    color: var(--accent-blue);
-    font-weight: 500;
-}
-
-.citation-btn {
-    display: inline-flex;
-    align-items: center;
-    background: var(--bg-accent);
-    border: 1px solid var(--border);
-    color: var(--accent-blue);
-    padding: 0.2rem 0.5rem;
-    border-radius: 0.25rem;
-    font-size: 0.75rem;
-    margin: 0 0.2rem;
-    cursor: pointer;
+.note-card {
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    border-left: 4px solid #ddd;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    font-size: 0.85rem;
     transition: transform 0.2s;
 }
+.note-card:hover { transform: translateY(-2px); }
 
-.citation-btn:hover {
-    transform: translateY(-1px);
-    background: var(--border);
+/* Context-Aware Styling (Option A) */
+.note-card.regulatory { border-left-color: var(--primary-blue); background: #fafdff; }
+.note-card.internal { border-left-color: var(--primary-purple); background: #fcfaff; }
+
+/* UTILS */
+.citation-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--accent-blue);
+    color: var(--primary-blue);
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.75rem;
+    margin: 2px;
+    font-weight: 500;
+}
+.pin-note-btn { opacity: 0.3; cursor: pointer; border: none; background: none; transition: opacity 0.2s; position: absolute; right: -25px; top: 10px; }
+.msg-bubble:hover .pin-note-btn { opacity: 1; }
+
+.source-card { padding: 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s; margin-bottom: 4px; }
+.source-card:hover { background: var(--hover-bg); }
+.source-card.active { background: var(--accent-blue); }
+.source-card.active h4 { color: var(--primary-blue); }
+
+/* ============================================================
+   Gap D — 流式认知工作台 样式
+   ============================================================ */
+
+/* --- 流式指示器（浮动 Dot 动画） --- */
+.stream-indicator {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 8px 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    z-index: 999;
+}
+.stream-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--primary-blue);
+    animation: streamBounce 1.2s infinite ease-in-out;
+}
+.stream-dot:nth-child(2) { animation-delay: 0.2s; }
+.stream-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes streamBounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40%           { transform: scale(1.0); opacity: 1.0; }
 }
 
-.chat-input-area {
-    padding: 1.5rem;
-    border-top: 1px solid var(--border);
+/* --- 流式消息气泡 --- */
+.msg-streaming { border: 1px solid var(--accent-blue); background: #f0f6ff; }
+.stream-cursor {
+    display: inline-block;
+    color: var(--primary-blue);
+    font-weight: bold;
+    animation: blink 0.8s step-end infinite;
+}
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* 流式 badge */
+.stream-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-radius: 4px;
+    font-weight: 600;
 }
 
-#query-input {
+/* Citation row 在气泡底部 */
+.citation-row {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+.inline-citation { display: inline; position: relative; }
+
+/* --- Studio 面板容器 --- */
+.studio-panel {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* --- 引用收藏库卡片 --- */
+.citation-lib-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
     width: 100%;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    color: white;
-    padding: 0.75rem;
-    border-radius: 0.5rem;
+}
+.citation-lib-card {
+    background: white;
+    border-radius: 10px;
+    padding: 12px;
+    border-left: 4px solid #ddd;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    font-size: 0.8rem;
+    transition: box-shadow 0.2s;
+}
+.citation-lib-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.citation-lib-card.regulatory { border-left-color: var(--primary-blue); background: #fafdff; }
+.citation-lib-card.internal   { border-left-color: var(--primary-purple); background: #fcfaff; }
+
+.cit-lib-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+.cit-lib-src  { font-weight: 600; font-size: 0.75rem; color: var(--text-main); }
+.cit-lib-page { color: var(--text-muted); font-size: 0.7rem; }
+.cit-lib-tag  {
+    padding: 1px 6px; border-radius: 4px; font-size: 0.65rem;
+    background: var(--accent-blue); color: var(--primary-blue);
+}
+.cit-lib-del  {
+    margin-left: auto; border: none; background: none;
+    cursor: pointer; color: #bbb; font-size: 0.75rem;
+}
+.cit-lib-del:hover { color: #e53935; }
+.cit-lib-content {
+    color: var(--text-main);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin-bottom: 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.cit-lib-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+.cit-lib-jump {
+    border: none; background: var(--accent-blue); color: var(--primary-blue);
+    padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 0.65rem;
+}
+.cit-lib-jump:hover { background: var(--primary-blue); color: white; }
+
+/* --- 衍生产物控制区 --- */
+.artifact-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+.artifact-input {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    font-size: 0.8rem;
     outline: none;
 }
-
-#query-input:focus {
-    border-color: var(--accent-blue);
+.artifact-input:focus { border-color: var(--primary-blue); }
+.artifact-select {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    background: white;
+    color: var(--text-main);
+    cursor: pointer;
 }
+.artifact-gen-btn {
+    width: 100%;
+    padding: 9px;
+    border-radius: 8px;
+    border: none;
+    background: var(--primary-blue);
+    color: white;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+.artifact-gen-btn:hover   { opacity: 0.9; }
+.artifact-gen-btn:disabled{ opacity: 0.5; cursor: not-allowed; }
+
+/* --- 衍生产物卡片 --- */
+.artifact-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+}
+.artifact-card {
+    background: white;
+    border-radius: 10px;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    font-size: 0.8rem;
+}
+.artifact-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+.artifact-type-tag {
+    padding: 2px 8px;
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.artifact-topic {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--text-main);
+    flex: 1;
+}
+.artifact-actions { display: flex; gap: 6px; }
+.artifact-actions button {
+    border: none;
+    background: var(--hover-bg);
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+.artifact-actions button:hover { background: var(--accent-blue); color: var(--primary-blue); }
+.artifact-content {
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: var(--text-main);
+    border-top: 1px solid var(--border-color);
+    padding-top: 10px;
+}
+.artifact-footer {
+    margin-top: 8px;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-color);
+    padding-top: 6px;
+}
+.artifact-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.75rem;
+    margin: 8px 0;
+}
+.artifact-table th {
+    background: var(--accent-blue);
+    color: var(--primary-blue);
+    padding: 6px 10px;
+    text-align: left;
+    border: 1px solid #d0e1f9;
+}
+.artifact-table td {
+    padding: 5px 10px;
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+}
+.artifact-table tr:nth-child(even) td { background: #f8faff; }
+
+/* --- Toast 通知 --- */
+.comac-toast {
+    position: fixed;
+    bottom: 70px;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: #323232;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+    z-index: 1000;
+    white-space: nowrap;
+}
+.comac-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* --- 空状态提示 --- */
+.empty-hint {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-align: center;
+    padding: 20px 0;
+}
+
+/* --- 引用库、产物的 code/pre 样式 --- */
+.artifact-content pre {
+    background: #f6f8fa;
+    padding: 10px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.72rem;
+}
+.artifact-content code { font-family: 'Fira Code', monospace; }
+
+/* 模态关闭按钮 */
+.close-btn {
+    margin-top: 20px;
+    padding: 8px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: white;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-main);
+}
+.close-btn:hover { background: var(--hover-bg); }
+
+/* Logo 容器 */
+.logo-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--text-main);
+}
+
+/* Tab 基础样式 */
+.tab {
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    padding: 4px 2px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+}
+.tab.active { color: var(--primary-blue); border-bottom-color: var(--primary-blue); }
+
+.badge {
+    display: inline-block;
+    background: var(--accent-blue);
+    color: var(--primary-blue);
+    border-radius: 8px;
+    padding: 0 5px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+/* Highlight Overlay */
+.highlight-overlay {
+    position: absolute;
+    background: rgba(255, 200, 0, 0.3);
+    border: 2px solid rgba(255, 180, 0, 0.6);
+    pointer-events: none;
+    display: none;
+    border-radius: 2px;
+}
+
+/* Speaker tags (podcast) */
+.speaker-tag {
+    font-weight: 600;
+    margin-right: 6px;
+}
+.speaker-1 { color: var(--primary-blue); }
+.speaker-2 { color: var(--primary-purple); }
+
+/* Modal overlay */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+.modal-content { position: relative; max-height: 90vh; overflow-y: auto; }
+
+/* Vision table */
+.vision-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    margin-bottom: 16px;
+}
+.vision-table th {
+    background: var(--accent-blue);
+    color: var(--primary-blue);
+    padding: 8px 12px;
+    text-align: left;
+    border: 1px solid #d0e1f9;
+}
+.vision-table td {
+    padding: 7px 12px;
+    border: 1px solid var(--border-color);
+}
+.vision-table tr:nth-child(even) td { background: #f8faff; }
