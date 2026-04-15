@@ -112,6 +112,21 @@ def sanitize_upload_filename(filename: str) -> str:
         raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
     return safe_name
 
+
+def build_source_refs_markdown(source_refs: List[Dict[str, Any]]) -> str:
+    if not source_refs:
+        return "- 来源引用: 无\n"
+
+    lines = ["- 来源引用:"]
+    for ref in source_refs:
+        source_file = ref.get("source_file") or ref.get("source") or "unknown"
+        page_number = ref.get("page_number") or ref.get("page") or "?"
+        content = str(ref.get("content", "")).strip()
+        if len(content) > 80:
+            content = content[:77] + "..."
+        lines.append(f"  - {source_file} p.{page_number}: {content or '无摘录'}")
+    return "\n".join(lines) + "\n"
+
 # --- Routes ---
 @app.get("/health")
 def health_check():
@@ -393,8 +408,13 @@ def export_studio_notes():
     notes = load_notes()
     md = "# COMAC NotebookLM - 适航审定研报\n\n"
     md += f"导出时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    for note in notes:
-        md += f"## 知识点记录\n- 内容: {note['content']}\n"
+    for index, note in enumerate(notes, start=1):
+        created_at = note.get("created_at")
+        created_label = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at)) if isinstance(created_at, (int, float)) else "未知"
+        md += f"## 知识点记录 {index}\n"
+        md += f"- 内容: {note.get('content', '')}\n"
+        md += f"- 记录时间: {created_label}\n"
+        md += build_source_refs_markdown(note.get("source_refs", []))
         md += "- 来源状态: 已验证 Grounded\n\n"
     return md
 

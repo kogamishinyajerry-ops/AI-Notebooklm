@@ -258,3 +258,38 @@ def test_documents_list_and_preview_return_expected_payload(monkeypatch, tmp_pat
     assert preview_response.status_code == 200
     preview_payload = preview_response.json()
     assert preview_payload[0]["metadata"]["source"] == "manual.pdf"
+
+
+def test_notes_roundtrip_and_export_preserve_source_refs(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    client = TestClient(main.app)
+
+    note_payload = {
+        "id": "note-1",
+        "content": "燃油箱防雷设计必须满足条款要求。",
+        "source_refs": [
+            {
+                "source_file": "manual.pdf",
+                "page_number": 3,
+                "content": "燃油箱防雷设计要求见本节说明。",
+            }
+        ],
+        "created_at": 1713146400.0,
+    }
+
+    create_response = client.post("/api/v1/notes", json=note_payload)
+    assert create_response.status_code == 200
+    assert create_response.json()["status"] == "success"
+
+    notes_response = client.get("/api/v1/notes")
+    assert notes_response.status_code == 200
+    notes_payload = notes_response.json()
+    assert notes_payload[0]["content"] == note_payload["content"]
+    assert notes_payload[0]["source_refs"][0]["source_file"] == "manual.pdf"
+
+    export_response = client.get("/api/v1/studio/export")
+    assert export_response.status_code == 200
+    export_body = export_response.text
+    assert "知识点记录 1" in export_body
+    assert "manual.pdf p.3" in export_body
+    assert "燃油箱防雷设计要求见本节说明。" in export_body
