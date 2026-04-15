@@ -1,0 +1,31 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data and generated stores
+data/
+models/
+*.sqlite
+*.sqlite3
+*.db
+*.gpickle
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local server logs
+*.log
+server_*.log
+uvicorn*.log
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
