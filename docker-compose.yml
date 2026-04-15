@@ -13,7 +13,8 @@ services:
     restart: unless-stopped
     environment:
       - ENVIRONMENT=production
-      # In a real environment, VLLM_URL would point to the local LLM host
-      - VLLM_URL=http://host.docker.internal:8000/v1
+      - ANONYMIZED_TELEMETRY=FALSE
+      - LOCAL_LLM_BASE_URL=http://host.docker.internal:8001/v1
+      - LOCAL_LLM_MODEL=Qwen2.5-14B-Instruct
     extra_hosts:
       - "host.docker.internal:host-gateway"

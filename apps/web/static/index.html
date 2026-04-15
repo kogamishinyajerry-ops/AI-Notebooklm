@@ -3,61 +3,172 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COMAC Intelligent NotebookLM</title>
+    <title>COMAC NotebookLM V3.0 - Cognitive Studio</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✈️</text></svg>">
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
+    <!-- 顶部诊断条 -->
+    <div style="background:#1a73e8;color:white;text-align:center;padding:4px;font-weight:bold;font-size:0.7rem;letter-spacing:1px;">
+        V3.0 GAP-D STREAMING COGNITIVE WORKBENCH ACTIVE (GRAPHRAG · MULTIMODAL · HALLUCINATION DEFENSE)
+    </div>
+
+    <!-- 流式指示器（浮动） -->
+    <div id="stream-indicator" class="stream-indicator" style="display:none;">
+        <span class="stream-dot"></span>
+        <span class="stream-dot"></span>
+        <span class="stream-dot"></span>
+        <span style="font-size:0.7rem;color:var(--text-muted);margin-left:6px;">推理中...</span>
+    </div>
+
     <div class="app-container">
-        <!-- Sidebar -->
+        <!-- Sidebar: Sources -->
         <aside class="sidebar">
-            <div class="logo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                AI NotebookLM
+            <div class="logo-container">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                <span>NotebookLM</span>
             </div>
-            <div class="source-list" id="source-list">
-                <p style="color: var(--text-secondary); font-size: 0.75rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em;">Your Sources</p>
-                <div class="source-item">mock_source.pdf</div>
+
+            <div style="margin-top:15px;margin-bottom:10px;">
+                <input type="text" id="source-filter" placeholder="Filter sources..."
+                    style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--border-color);font-size:0.75rem;">
+            </div>
+
+            <div class="source-gallery" id="source-list" style="flex-grow:1;overflow-y:auto;">
+                <p style="color:var(--text-muted);font-size:0.65rem;padding:10px 0;">YOUR SOURCES</p>
+            </div>
+
+            <div style="padding-top:10px;border-top:1px solid var(--border-color);display:grid;gap:8px;">
+                <button id="guide-btn" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--primary-blue);background:var(--accent-blue);color:var(--primary-blue);font-size:0.75rem;cursor:pointer;">
+                    ✨ Study Guide
+                </button>
+                <button id="podcast-btn" style="width:100%;padding:10px;border-radius:8px;border:1px solid #7c4dff;background:#f3e5f5;color:#7c4dff;font-size:0.75rem;cursor:pointer;">
+                    📻 Audio Deep Dive
+                </button>
             </div>
         </aside>
 
-        <!-- Main Content (Dual Pane) -->
-        <main class="main-content">
-            <!-- Left: PDF Viewer -->
-            <section class="pdf-pane">
-                <div style="padding: 1rem; border-bottom: 1px solid var(--border); font-weight: 600;">
-                    Document Preview
+        <!-- Main Workspace -->
+        <main class="main-workspace" id="main-workspace">
+
+            <!-- Column 1: Document -->
+            <section class="bento-card col-resizable" id="col-doc" style="flex:1.2;">
+                <div class="card-header">
+                    <div style="display:flex;gap:12px;">
+                        <span id="tab-doc" class="tab active" onclick="switchView('doc')">Document View</span>
+                        <span id="tab-data" class="tab" onclick="switchView('data')">Data View <span id="table-count" class="badge">0</span></span>
+                    </div>
+                    <button id="graph-btn" style="border:none;background:none;color:var(--primary-blue);font-size:0.7rem;cursor:pointer;">Spatial Graph</button>
                 </div>
-                <div class="pdf-viewport" id="pdf-viewport">
-                    <div class="pdf-page-mock" id="pdf-page">
-                        <div id="highlight" class="highlight-overlay"></div>
-                        <div style="padding: 40px; color: #ccc; font-family: serif;">
-                            <h2 style="color: black; margin-bottom: 20px;">COMAC 飞行控制律说明书 (Mock)</h2>
-                            <p style="color: #444; line-height: 1.6;">
-                                这部分是关于飞行控制律的描述。控制律的设计旨在保证飞机的稳定性和操纵性。
-                                系统通过多重传感器输入，计算最优的控制面偏置。
-                            </p>
+                <div class="pdf-viewport">
+                    <div id="view-doc">
+                        <div class="pdf-page-mock" id="pdf-page">
+                            <div id="highlight" class="highlight-overlay"></div>
                         </div>
+                    </div>
+                    <div id="view-data" style="display:none;padding:20px;">
+                        <div id="data-container"></div>
                     </div>
                 </div>
             </section>
 
-            <!-- Right: Chat Interface -->
-            <section class="chat-pane">
-                <div style="padding: 1rem; border-bottom: 1px solid var(--border); font-weight: 600;">
-                    AI Assistant
+            <div class="gutter" id="gutter-1"></div>
+
+            <!-- Column 2: Chat (Gap D — 流式) -->
+            <section class="bento-card col-resizable" id="col-chat" style="flex:1;">
+                <div class="card-header">
+                    <span>Cognitive Chat</span>
+                    <span class="stream-badge" title="流式推理模式">⚡ Stream</span>
                 </div>
-                <div class="chat-history" id="chat-history">
-                    <div class="message system">
-                        Hello. I'm your Intelligent Engineering Assistant. Upload documents to the left or ask questions based on existing knowledge.
+                <div class="chat-history" id="chat-history"></div>
+                <div class="chat-input-container">
+                    <input type="text" id="query-input" class="input-pill"
+                        placeholder="询问适航条款、工程参数、跨文档关联...">
+                </div>
+            </section>
+
+            <div class="gutter" id="gutter-2"></div>
+
+            <!-- Column 3: Studio (Gap D 扩展：引用库 + 衍生产物) -->
+            <section class="bento-card col-resizable" id="col-studio" style="flex:0.9;">
+                <!-- Studio 标签页 -->
+                <div class="card-header" style="flex-direction:column;gap:0;padding-bottom:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;width:100%;padding-bottom:8px;">
+                        <div style="display:flex;gap:12px;">
+                            <span class="tab active studio-tab" id="stab-lib"
+                                onclick="switchStudioTab('lib')">
+                                📌 引用库 <span id="citation-lib-count" class="badge">0</span>
+                            </span>
+                            <span class="tab studio-tab" id="stab-art"
+                                onclick="switchStudioTab('art')">
+                                ⚗️ 衍生产物
+                            </span>
+                        </div>
+                        <button id="export-btn" style="border:none;background:none;color:var(--primary-blue);font-size:0.7rem;cursor:pointer;">⬇ 报告</button>
                     </div>
                 </div>
-                <div class="chat-input-area">
-                    <input type="text" id="query-input" placeholder="Ask about your documents...">
+
+                <!-- 引用收藏库面板 (Gap D Task D-2) -->
+                <div id="citation-lib-panel" class="studio-panel">
+                    <div id="citation-lib-list" class="citation-lib-list">
+                        <p class="empty-hint">点击引用旁的 📌 收藏到此处</p>
+                    </div>
+                </div>
+
+                <!-- 衍生产物面板 (Gap D Task D-3) -->
+                <div id="artifact-panel" class="studio-panel" style="display:none;">
+                    <div class="artifact-controls">
+                        <input type="text" id="artifact-topic" placeholder="生成主题（如：MTOW 与 MLW 对比）"
+                            class="artifact-input">
+                        <select id="artifact-type" class="artifact-select">
+                            <option value="technical_brief">📝 技术简报</option>
+                            <option value="comparison_table">📊 对比表</option>
+                        </select>
+                        <button id="artifact-gen-btn" class="artifact-gen-btn">生成产物</button>
+                    </div>
+                    <div id="artifact-list" class="artifact-list">
+                        <p class="empty-hint">输入主题后点击「生成产物」</p>
+                    </div>
                 </div>
             </section>
         </main>
     </div>
 
+    <!-- Modals -->
+    <div id="guide-modal" class="modal-overlay" style="display:none;">
+        <div class="bento-card modal-content" style="width:500px;padding:30px;">
+            <h3 style="margin-bottom:16px;">✨ Documentation Study Guide</h3>
+            <p id="guide-summary" style="font-size:0.9rem;color:#444;margin-bottom:20px;line-height:1.6;"></p>
+            <div id="suggested-questions" style="display:grid;gap:8px;"></div>
+            <button onclick="document.getElementById('guide-modal').style.display='none'" class="close-btn">Close</button>
+        </div>
+    </div>
+
+    <div id="podcast-modal" class="modal-overlay" style="display:none;">
+        <div class="bento-card modal-content" style="width:600px;padding:30px;">
+            <h3 style="margin-bottom:16px;">📻 Audio Deep Dive Script</h3>
+            <div id="podcast-content" style="background:#f8f9fa;padding:20px;border-radius:12px;max-height:400px;overflow-y:auto;font-family:monospace;font-size:0.85rem;"></div>
+            <button onclick="document.getElementById('podcast-modal').style.display='none'" class="close-btn" style="margin-top:20px;">Close Player</button>
+        </div>
+    </div>
+
+    <div id="graph-modal" class="modal-overlay" style="display:none;">
+        <div class="bento-card modal-content" style="width:800px;height:600px;padding:10px;">
+            <h3 style="padding:20px;">🕸️ Knowledge Relation Graph</h3>
+            <svg id="graph-svg" style="width:100%;height:500px;"></svg>
+            <button onclick="document.getElementById('graph-modal').style.display='none'" class="close-btn" style="position:absolute;right:20px;bottom:20px;">Close Graph</button>
+        </div>
+    </div>
+
+    <script>
+    // Studio 标签页切换（Gap D）
+    function switchStudioTab(tab) {
+        document.getElementById('citation-lib-panel').style.display = tab === 'lib'  ? 'flex' : 'none';
+        document.getElementById('artifact-panel').style.display     = tab === 'art'  ? 'flex' : 'none';
+        document.getElementById('stab-lib').classList.toggle('active', tab === 'lib');
+        document.getElementById('stab-art').classList.toggle('active', tab === 'art');
+    }
+    </script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
