@@ -39,6 +39,24 @@ def test_embedding_manager_allows_build_time_download_by_default(monkeypatch):
     assert calls == [("build-model", False)]
 
 
+def test_embedding_manager_wraps_missing_local_model_error(monkeypatch):
+    class FakeSentenceTransformer:
+        def __init__(self, model_name, local_files_only):
+            raise OSError("not found in local cache")
+
+    monkeypatch.setattr(embeddings, "SentenceTransformer", FakeSentenceTransformer)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    try:
+        embeddings.EmbeddingManager(model_name="missing-model")
+    except RuntimeError as exc:
+        assert "missing-model" in str(exc)
+        assert "local cache" in str(exc)
+        assert "pre_download_models.py" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for missing local model")
+
+
 def test_vector_store_disables_chroma_telemetry(monkeypatch):
     calls = {}
 

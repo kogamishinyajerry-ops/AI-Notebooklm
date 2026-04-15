@@ -1,12 +1,13 @@
 import pytest
 
-from services.ingestion.filenames import safe_upload_filename, safe_upload_path
+from services.ingestion.filenames import safe_upload_filename, safe_upload_path, validate_pdf_upload
 
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
         ("manual.pdf", "manual.pdf"),
+        (" manual.pdf ", "manual.pdf"),
         ("../manual.pdf", "manual.pdf"),
         ("nested/path/manual.pdf", "manual.pdf"),
         (r"..\windows\manual.pdf", "manual.pdf"),
@@ -24,5 +25,36 @@ def test_safe_upload_filename_rejects_invalid_names(raw):
 
 def test_safe_upload_path_stays_under_upload_dir(tmp_path):
     path = safe_upload_path(tmp_path, "../manual.pdf")
+
+    assert path == tmp_path / "manual.pdf"
+
+
+@pytest.mark.parametrize(
+    ("raw", "content_type", "expected"),
+    [
+        ("manual.pdf", "application/pdf", "manual.pdf"),
+        ("manual.PDF", "application/pdf; charset=binary", "manual.PDF"),
+        ("../manual.pdf", "application/pdf", "manual.pdf"),
+    ],
+)
+def test_validate_pdf_upload_accepts_pdf_basename(raw, content_type, expected):
+    assert validate_pdf_upload(raw, content_type) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "content_type"),
+    [
+        ("manual.txt", "application/pdf"),
+        ("manual.pdf", "text/plain"),
+        ("manual.pdf", None),
+    ],
+)
+def test_validate_pdf_upload_rejects_non_pdf_inputs(raw, content_type):
+    with pytest.raises(ValueError):
+        validate_pdf_upload(raw, content_type)
+
+
+def test_safe_upload_path_validates_pdf_when_content_type_is_provided(tmp_path):
+    path = safe_upload_path(tmp_path, "../manual.pdf", "application/pdf")
 
     assert path == tmp_path / "manual.pdf"

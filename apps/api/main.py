@@ -149,7 +149,7 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
     upload_dir = "data/docs"
     os.makedirs(upload_dir, exist_ok=True)
     try:
-        file_path = safe_upload_path(upload_dir, file.filename)
+        file_path = safe_upload_path(upload_dir, file.filename, file.content_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     transaction = IngestTransaction(space_id=space_id)

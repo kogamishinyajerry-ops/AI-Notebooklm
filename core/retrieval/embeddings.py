@@ -23,7 +23,15 @@ class EmbeddingManager:
     """
     def __init__(self, model_name: str = "BAAI/bge-large-zh-v1.5", local_files_only: bool | None = None):
         local_only = should_use_local_files_only() if local_files_only is None else local_files_only
-        self.model = SentenceTransformer(model_name, local_files_only=local_only)
+        try:
+            self.model = SentenceTransformer(model_name, local_files_only=local_only)
+        except OSError as exc:
+            if not local_only:
+                raise
+            raise RuntimeError(
+                f"Embedding model '{model_name}' was not found in the local cache. "
+                "Run scripts/pre_download_models.py during the image build or disable offline mode for setup."
+            ) from exc
 
     def encode(self, texts: list[str]):
         """Encodes a list of strings into vectors."""
