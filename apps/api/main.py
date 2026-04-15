@@ -12,6 +12,7 @@ import requests
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from services.ingestion.service import IngestionService
+from services.ingestion.filenames import safe_upload_path
 from core.ingestion.transaction import (
     IngestTransaction,
     cleanup_committed_transactions,
@@ -147,7 +148,10 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
     """Uploads and triggers ingestion for a document."""
     upload_dir = "data/docs"
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, file.filename)
+    try:
+        file_path = safe_upload_path(upload_dir, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     transaction = IngestTransaction(space_id=space_id)
     
     try:
@@ -156,7 +160,7 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
         transaction.record_file(file_path)
 
         chunk_count = ingestion_service.process_file(
-            file_path,
+            str(file_path),
             space_id=space_id,
             transaction=transaction,
         )
@@ -169,7 +173,7 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
     
     return {
-        "filename": file.filename, 
+        "filename": file_path.name,
         "space_id": space_id,
         "chunks_indexed": chunk_count,
         "status": "completed"
