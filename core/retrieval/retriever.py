@@ -23,7 +23,7 @@ class RetrieverEngine:
         
         # 2. Vector Search
         # The ChromaDB query returns a dictionary with lists of lists for documents and metadatas
-        raw_results = self.vector_store.query(query_embedding=query_emb.tolist(), top_k=top_k)
+        raw_results = self.vector_store.query(query_embeddings=query_emb.tolist(), top_k=top_k)
         
         if not raw_results or not raw_results.get("documents") or not raw_results["documents"][0]:
             return []

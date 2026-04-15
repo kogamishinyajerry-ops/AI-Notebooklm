@@ -12,6 +12,14 @@ import requests
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from services.ingestion.service import IngestionService
+from services.ingestion.filenames import safe_upload_path
+from core.ingestion.transaction import (
+    IngestTransaction,
+    cleanup_committed_transactions,
+    iter_space_ids,
+    recover_incomplete_transactions,
+    summarize_transaction_health,
+)
 from core.retrieval.retriever import RetrieverEngine
 from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
 from core.governance.gateway import AntiHallucinationGateway
@@ -21,6 +29,17 @@ app = FastAPI(title="COMAC Intelligent NotebookLM API")
 # Initialize shared services
 ingestion_service = IngestionService()
 retriever_engine = RetrieverEngine()
+
+
+@app.on_event("startup")
+def recover_ingestion_transactions():
+    for space_id in iter_space_ids():
+        recover_incomplete_transactions(
+            space_id,
+            vector_store=ingestion_service.vector_store,
+            registry=getattr(ingestion_service, "parameter_registry", None),
+        )
+        cleanup_committed_transactions(space_id)
 
 # Mount static files
 static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
@@ -52,6 +71,14 @@ class ChatResponse(BaseModel):
 def health_check():
     return {"status": "ok", "service": "COMAC NotebookLM"}
 
+@app.get("/api/v1/health")
+def api_health_check():
+    return {
+        "status": "ok",
+        "service": "COMAC NotebookLM",
+        "transactions": summarize_transaction_health(),
+    }
+
 @app.post("/api/v1/spaces")
 def create_space(name: str):
     """Creates a new knowledge space (collection in vector db)."""
@@ -59,11 +86,13 @@ def create_space(name: str):
 
 def invoke_local_llm(system_prompt: str, user_query: str) -> str:
     """Invokes local vLLM (Qwen-2.5/GLM-4) via OpenAI-compatible API."""
+    vllm_url = os.getenv("VLLM_URL", "http://localhost:8000/v1").rstrip("/")
+    model_name = os.getenv("LOCAL_LLM_MODEL", "qwen-2.5")
     try:
         resp = requests.post(
-            "http://localhost:8000/v1/chat/completions",
+            f"{vllm_url}/chat/completions",
             json={
-                "model": "qwen-2.5", 
+                "model": model_name,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_query}
@@ -119,18 +148,32 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
     """Uploads and triggers ingestion for a document."""
     upload_dir = "data/docs"
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, file.filename)
-    
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    try:
+        file_path = safe_upload_path(upload_dir, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    transaction = IngestTransaction(space_id=space_id)
     
     try:
-        chunk_count = ingestion_service.process_file(file_path)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        transaction.record_file(file_path)
+
+        chunk_count = ingestion_service.process_file(
+            str(file_path),
+            space_id=space_id,
+            transaction=transaction,
+        )
     except Exception as e:
+        if transaction.status == "in_progress":
+            transaction.rollback(
+                vector_store=ingestion_service.vector_store,
+                registry=getattr(ingestion_service, "parameter_registry", None),
+            )
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
     
     return {
-        "filename": file.filename, 
+        "filename": file_path.name,
         "space_id": space_id,
         "chunks_indexed": chunk_count,
         "status": "completed"

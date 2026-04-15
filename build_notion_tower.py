@@ -3,8 +3,12 @@ import json
 import time
 import requests
 
-API_KEY = "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"
-PARENT_PAGE_ID = "342c6894-2bed-80d0-be2f-d9d85ff9e2cd"
+API_KEY = os.getenv("NOTION_API_KEY")
+PARENT_PAGE_ID = os.getenv("NOTION_PARENT_PAGE_ID", "342c6894-2bed-80d0-be2f-d9d85ff9e2cd")
+
+if not API_KEY:
+    raise SystemExit("Set NOTION_API_KEY before running build_notion_tower.py")
+
 HEADERS = {
     "Authorization": f"Bearer {API_KEY}",
     "Notion-Version": "2022-06-28",

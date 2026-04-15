@@ -33,6 +33,8 @@ EXPOSE 8000
 # Set production env vars
 ENV PYTHONUNBUFFERED=1
 ENV ENVIRONMENT=production
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
 
 # Start FastAPI via Uvicorn
 CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
