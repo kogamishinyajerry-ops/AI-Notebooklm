@@ -161,7 +161,8 @@ async def chat_stream_endpoint(request: ChatRequest):
     事件格式：
       data: {"type":"delta","text":"..."}\n\n      — 逐 token 文本流
       data: {"type":"citations","citations":[...]}\n\n  — 最终引用列表
-      data: {"type":"done","is_verified":bool}\n\n    — 完成信号
+      data: {"type":"done","is_verified":bool,"answer":"..."}\n\n
+                                                    — 完成信号 + 最终安全答案
 
     C1 合规：仅允许本地 / 私网 OpenAI-compatible LLM 端点，零公网依赖。
     C2 合规：citations 事件携带完整 source/page/bbox 溯源信息。
@@ -214,7 +215,7 @@ async def chat_stream_endpoint(request: ChatRequest):
         # 发送 citations 事件
         yield f"data: {json.dumps({'type':'citations','citations':citations_data}, ensure_ascii=False)}\n\n"
         # 发送 done 事件
-        yield f"data: {json.dumps({'type':'done','is_verified':is_valid}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type':'done','is_verified':is_valid,'answer':safe_response}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_stream(),
