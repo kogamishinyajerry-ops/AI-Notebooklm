@@ -12,7 +12,7 @@ import requests
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from services.ingestion.service import IngestionService
-from services.ingestion.filenames import safe_upload_path
+from services.ingestion.filenames import safe_upload_path, validate_pdf_magic
 from core.ingestion.transaction import (
     IngestTransaction,
     cleanup_committed_transactions,
@@ -150,6 +150,7 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
     os.makedirs(upload_dir, exist_ok=True)
     try:
         file_path = safe_upload_path(upload_dir, file.filename, file.content_type)
+        validate_pdf_magic(file.file)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     transaction = IngestTransaction(space_id=space_id)
