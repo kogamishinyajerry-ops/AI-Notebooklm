@@ -65,6 +65,11 @@ class DummyIngestionService:
         return 7
 
 
+class FailingIngestionService:
+    def process_file(self, file_path: str):
+        raise RuntimeError("vector store unavailable")
+
+
 def test_chat_endpoint_returns_grounded_citations(monkeypatch):
     monkeypatch.setattr(main, "get_retriever_engine", lambda: DummyRetriever())
     monkeypatch.setattr(
@@ -258,6 +263,22 @@ def test_documents_list_and_preview_return_expected_payload(monkeypatch, tmp_pat
     assert preview_response.status_code == 200
     preview_payload = preview_response.json()
     assert preview_payload[0]["metadata"]["source"] == "manual.pdf"
+
+
+def test_upload_document_cleans_up_file_on_ingestion_failure(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(main, "get_ingestion_service", lambda: FailingIngestionService())
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/v1/documents/upload",
+        params={"space_id": "test-space"},
+        files={"file": ("broken.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Ingestion failed: vector store unavailable"
+    assert not (tmp_path / "data" / "docs" / "broken.pdf").exists()
 
 
 def test_notes_roundtrip_and_export_preserve_source_refs(monkeypatch, tmp_path):
