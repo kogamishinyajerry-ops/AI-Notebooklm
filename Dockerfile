@@ -34,5 +34,15 @@ EXPOSE 8000
 ENV PYTHONUNBUFFERED=1
 ENV ENVIRONMENT=production
 
+# C1 合规: 运行时强制离线，所有模型权重已在 build 阶段烧录
+ENV TRANSFORMERS_OFFLINE=1
+ENV HF_DATASETS_OFFLINE=1
+ENV HF_HOME=/app/models
+ENV ANONYMIZED_TELEMETRY=FALSE
+
+# Gap B: Qwen2.5-VL 本地路径（由 pre_download_models.py 写入）
+ENV QWEN_VL_MODEL_PATH=/app/models/Qwen2.5-VL-7B-Instruct
+ENV LOCAL_LLM_MODEL=Qwen2.5-14B-Instruct
+
 # Start FastAPI via Uvicorn
 CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
