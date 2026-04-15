@@ -38,10 +38,10 @@ class VectorStoreAdapter:
         )
         return ids
 
-    def delete(self, ids: list[str]):
-        """Deletes documents by id for transaction rollback."""
-        if ids:
-            self.collection.delete(ids=ids)
+    def delete(self, ids: list[str] | None = None, where: dict | None = None):
+        """Deletes documents by id or metadata filter for cleanup."""
+        if ids or where:
+            self.collection.delete(ids=ids, where=where)
 
     def query(self, query_embeddings: list[float], top_k: int = 5):
         """
