@@ -183,6 +183,21 @@ def test_artifact_endpoint_returns_verified_citations(monkeypatch):
     assert "技术简报" in payload["content"]
 
 
+def test_artifact_endpoint_rejects_unknown_artifact_type():
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/v1/artifacts/generate",
+        json={
+            "artifact_type": "summary_card",
+            "topic": "飞控系统稳定性",
+            "space_id": "test-space",
+            "cited_sources": [],
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_knowledge_graph_endpoint_returns_graph_payload(monkeypatch):
     monkeypatch.setattr(main, "get_graph_inspector", lambda: DummyGraphInspector())
     monkeypatch.setattr(main, "get_community_summarizer", lambda: DummyCommunitySummarizer())

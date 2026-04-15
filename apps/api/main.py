@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any, AsyncIterator
+from typing import List, Optional, Dict, Any, AsyncIterator, Literal
 from functools import lru_cache
 import shutil
 import os
@@ -66,7 +66,7 @@ class ArtifactRequest(BaseModel):
     topic: 生成主题（如"MTOW与MLW的重量层级关系"）
     cited_sources: 引用卡片列表（从前端收藏面板传入）
     """
-    artifact_type: str       # "comparison_table" | "technical_brief"
+    artifact_type: Literal["comparison_table", "technical_brief"]
     topic: str
     space_id: str
     cited_sources: Optional[List[Dict[str, Any]]] = None
