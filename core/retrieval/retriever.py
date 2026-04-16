@@ -62,6 +62,7 @@ class RetrieverEngine:
         mmr_threshold: float = 0.92,
         expand_graph: bool = True,
         notebook_id: Optional[str] = None,
+        rrf_weights: Optional[Dict[str, float]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieve context chunks for *query*.
@@ -91,6 +92,9 @@ class RetrieverEngine:
             graph expansion as a third retrieval signal fused via 3-way RRF.
         notebook_id:
             Required for graph expansion (identifies which graph to query).
+        rrf_weights:
+            Optional mapping for weighted RRF keys ``semantic``, ``bm25``,
+            and ``graph``. Values are normalized automatically when present.
 
         Returns
         -------
@@ -163,8 +167,15 @@ class RetrieverEngine:
 
         # 7. Fuse signals via RRF
         if bm25_chunks or graph_chunks:
+            weights = self._resolve_rrf_weights(rrf_weights)
             candidates = self._rrf_fuse_three_way(
-                vector_chunks, bm25_chunks, graph_chunks, top_k=top_k
+                vector_chunks,
+                bm25_chunks,
+                graph_chunks,
+                top_k=top_k,
+                w_semantic=weights["semantic"],
+                w_bm25=weights["bm25"],
+                w_graph=weights["graph"],
             )
         else:
             candidates = vector_chunks
@@ -200,6 +211,28 @@ class RetrieverEngine:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_rrf_weights(
+        rrf_weights: Optional[Dict[str, float]],
+    ) -> Dict[str, float]:
+        defaults = {"semantic": 0.4, "bm25": 0.3, "graph": 0.3}
+        if not rrf_weights:
+            return defaults
+
+        weights = {
+            "semantic": float(rrf_weights.get("semantic", defaults["semantic"])),
+            "bm25": float(rrf_weights.get("bm25", defaults["bm25"])),
+            "graph": float(rrf_weights.get("graph", defaults["graph"])),
+        }
+        total = sum(max(value, 0.0) for value in weights.values())
+        if total <= 0:
+            return defaults
+
+        return {
+            key: max(value, 0.0) / total
+            for key, value in weights.items()
+        }
 
     def _graph_expand(
         self,

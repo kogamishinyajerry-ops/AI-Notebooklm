@@ -1,0 +1,63 @@
+[
+  {
+    "query": "失速演示和失速警告有哪些要求？",
+    "expected_pages": [1],
+    "expected_keywords": ["stall demonstration", "stall warning"],
+    "note": "Table-of-contents chunk covering the Part 25 stalls section."
+  },
+  {
+    "query": "结构疲劳评估和 LOV 需要满足什么要求？",
+    "expected_pages": [72],
+    "expected_keywords": ["fatigue", "LOV", "widespread fatigue damage"]
+  },
+  {
+    "query": "鸟撞损伤的适航要求是什么？",
+    "expected_pages": [78],
+    "expected_keywords": ["bird strike damage", "empennage structure"]
+  },
+  {
+    "query": "停车刹车的合规要求是什么？",
+    "expected_pages": [86],
+    "expected_keywords": ["parking brake", "prevent the airplane from rolling"]
+  },
+  {
+    "query": "紧急撤离和紧急出口要满足哪些要求？",
+    "expected_pages": [99, 101],
+    "expected_keywords": ["emergency evacuation", "emergency exits"]
+  },
+  {
+    "query": "下舱服务舱的紧急疏散路线要求是什么？",
+    "expected_pages": [109],
+    "expected_keywords": ["lower deck service compartment", "emergency evacuation routes"]
+  },
+  {
+    "query": "燃油箱通气和燃油箱出口有哪些要求？",
+    "expected_pages": [130],
+    "expected_keywords": ["fuel tank outlet", "vent line"]
+  },
+  {
+    "query": "电气电子系统的防雷要求是什么？",
+    "expected_pages": [152],
+    "expected_keywords": ["lightning protection", "electrical and electronic system"]
+  },
+  {
+    "query": "液压系统试验和压力约束有哪些要求？",
+    "expected_pages": [169],
+    "expected_keywords": ["hydraulic system", "tests must be conducted"]
+  },
+  {
+    "query": "襟翼放出速度 VFE 应如何建立？",
+    "expected_pages": [176],
+    "expected_keywords": ["flap extended speed", "VFE"]
+  },
+  {
+    "query": "EWIS 的功能和安装要求是什么？",
+    "expected_pages": [183],
+    "expected_keywords": ["EWIS", "function and installation"]
+  },
+  {
+    "query": "连续结冰条件下降和进近构型需要考虑什么？",
+    "expected_pages": [279],
+    "expected_keywords": ["icing conditions", "descent", "approach configuration"]
+  }
+]

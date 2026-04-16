@@ -160,6 +160,10 @@ def _make_retriever(
     return r
 
 
+def _make_chunk(text: str, source_id: str = "s1") -> Dict[str, Any]:
+    return {"text": text, "metadata": {"source_id": source_id}}
+
+
 # ===========================================================================
 # F1 — BM25 tests
 # ===========================================================================
@@ -309,6 +313,31 @@ class TestRRFFusion:
         shared = {"text": "shared chunk", "metadata": {"source_id": "s1"}}
         fused = r._rrf_fuse([shared], [shared], top_k=5)
         assert sum(1 for c in fused if c["text"] == "shared chunk") == 1
+
+    def test_resolve_rrf_weights_normalises_custom_values(self):
+        r = _make_retriever()
+        weights = r._resolve_rrf_weights({"semantic": 2.0, "bm25": 1.0, "graph": 1.0})
+
+        assert weights == {"semantic": 0.5, "bm25": 0.25, "graph": 0.25}
+
+    def test_rrf_custom_weights_change_ranking_bias(self):
+        r = _make_retriever()
+        vec = [_make_chunk("vector winner"), _make_chunk("shared")]
+        bm25 = [_make_chunk("lexical winner"), _make_chunk("shared")]
+        graph = [_make_chunk("lexical winner"), _make_chunk("shared")]
+
+        result = r._rrf_fuse_three_way(
+            vec,
+            bm25,
+            graph,
+            top_k=5,
+            w_semantic=0.1,
+            w_bm25=0.45,
+            w_graph=0.45,
+        )
+
+        texts = [item["text"] for item in result]
+        assert texts.index("lexical winner") < texts.index("vector winner")
 
 
 # ===========================================================================

@@ -49,6 +49,16 @@ curl http://localhost:8000/api/v1/llm/health
 python3 scripts/check_vllm_endpoint.py
 ```
 
+## 📊 V4.0 Evaluation & Ops Pack
+
+- Real-corpus retrieval query set: `/Users/Zhuanz/AI-Notebooklm/docs/eval/part25_query_set.json`
+- One-shot evaluation: `python3 /Users/Zhuanz/AI-Notebooklm/scripts/evaluate_retrieval.py --output /Users/Zhuanz/AI-Notebooklm/docs/eval/part25_eval_report.json`
+- RRF tuning grid: `python3 /Users/Zhuanz/AI-Notebooklm/scripts/tune_rrf_weights.py --output /Users/Zhuanz/AI-Notebooklm/docs/eval/part25_rrf_tuning.json`
+- Staging deployment pack: `/Users/Zhuanz/AI-Notebooklm/deploy/docker-compose.staging.yml`
+- Staging runbook: `/Users/Zhuanz/AI-Notebooklm/docs/V4_0_STAGING_RUNBOOK.md`
+- UAT pack: `/Users/Zhuanz/AI-Notebooklm/docs/V4_0_UAT_PACK.md`
+- Real-corpus evaluation summary: `/Users/Zhuanz/AI-Notebooklm/docs/V4_0_REAL_CORPUS_EVAL.md`
+
 ## 🛡️ Governance Constraints
 
 This project was developed under the strict **Antigravity Governance Framework**, enforcing:

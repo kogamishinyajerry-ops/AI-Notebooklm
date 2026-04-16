@@ -87,3 +87,20 @@ class VectorStoreAdapter:
             "documents": result.get("documents") or [],
             "metadatas": result.get("metadatas") or [],
         }
+
+    def get_all(self, where: dict | None = None) -> dict:
+        """
+        Fetch all documents and metadata, optionally filtered by metadata.
+
+        Primarily used by evaluation tooling to rebuild lexical indexes or
+        compute notebook-scoped diagnostics without going through ANN search.
+        """
+        kwargs: dict = {"include": ["documents", "metadatas"]}
+        if where:
+            kwargs["where"] = where
+        result = self.collection.get(**kwargs)
+        return {
+            "ids": result.get("ids") or [],
+            "documents": result.get("documents") or [],
+            "metadatas": result.get("metadatas") or [],
+        }
