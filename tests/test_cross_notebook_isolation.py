@@ -148,6 +148,23 @@ def _install_stubs():
     vs_mod = _stub("core.retrieval.vector_store")
     vs_mod.VectorStoreAdapter = RecordingVectorStore
 
+    class _FakeBM25Index:
+        """Stub BM25 index: always empty (size=0) so hybrid degrades to vector-only."""
+        size = 0
+        def build(self, corpus): pass
+        def query(self, query, top_k=10, extra_tokens=None): return []
+
+    bm25_mod = _stub("core.retrieval.bm25_index")
+    bm25_mod.BM25Index = _FakeBM25Index
+
+    class _FakeQueryExpander:
+        """Stub query expander: no-op (returns original query, no extra tokens)."""
+        def expand(self, query):
+            return query, []
+
+    qe_mod = _stub("core.retrieval.query_expander")
+    qe_mod.QueryExpander = _FakeQueryExpander
+
     # ---- services.ingestion ----
     _stub("services.ingestion")
     svc_mod = _stub("services.ingestion.service")
@@ -208,6 +225,9 @@ def _install_stubs():
     studio_store_mod = _stub("core.storage.studio_store")
     studio_store_mod.StudioStore = MagicMock
 
+    graph_store_mod = _stub("core.storage.graph_store")
+    graph_store_mod.GraphStore = MagicMock
+
     _stub("core.models.note")
     _stub("core.models.chat_message")
     so_mod = _stub("core.models.studio_output")
@@ -217,19 +237,36 @@ def _install_stubs():
             return ["summary", "faq", "briefing", "glossary", "action_items"]
     so_mod.StudioOutputType = _StudioOutputType
 
+    _stub("core.models.graph")
+
+    _stub("core.knowledge")
+    graph_ext_mod = _stub("core.knowledge.graph_extractor")
+    graph_ext_mod.GraphExtractor = MagicMock
+
+
+class _FakeBM25IndexInstance:
+    """Minimal BM25 instance for retriever tests: always empty."""
+    size = 0
+    def build(self, corpus): pass
+    def query(self, query, top_k=10, extra_tokens=None): return []
+
+
+class _FakeQueryExpanderInstance:
+    """No-op query expander."""
+    def expand(self, query):
+        return query, []
+
 
 def _make_retriever(vs: RecordingVectorStore):
     """Build a RetrieverEngine with all heavy sub-components replaced."""
     _install_stubs()
     from core.retrieval.retriever import RetrieverEngine  # noqa: PLC0415
-    from core.retrieval.bm25_index import BM25Index  # noqa: PLC0415
-    from core.retrieval.query_expander import QueryExpander  # noqa: PLC0415
     r = RetrieverEngine.__new__(RetrieverEngine)
     r.embedding_manager = FakeEmbeddingManager()
     r.vector_store = vs
     r.reranker = FakeReranker()
-    r.bm25_index = BM25Index()
-    r.query_expander = QueryExpander()
+    r.bm25_index = _FakeBM25IndexInstance()
+    r.query_expander = _FakeQueryExpanderInstance()
     return r
 
 
