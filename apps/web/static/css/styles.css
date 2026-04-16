@@ -535,3 +535,32 @@ body {
 ::-webkit-scrollbar-track   { background: transparent; }
 ::-webkit-scrollbar-thumb   { background: var(--bg-accent); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* ─── S-23: Knowledge Graph / Mind Map ───────────────── */
+.graph-controls {
+    padding: 0.6rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+.mindmap-svg {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    display: block;
+    overflow: visible;
+}
+#panel-graph {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+}
+/* SVG node styles (set via JS) */
+.mm-node circle  { stroke: #6366f1; stroke-width: 2; fill: #1e293b; cursor: pointer; }
+.mm-node circle:hover { fill: #312e81; }
+.mm-node text    { fill: #e2e8f0; font-size: 11px; font-family: sans-serif; pointer-events: none; }
+.mm-edge         { stroke: #475569; stroke-width: 1.5; fill: none; }
+.mm-edge.definition   { stroke: #6366f1; }
+.mm-edge.parent-child { stroke: #10b981; }
