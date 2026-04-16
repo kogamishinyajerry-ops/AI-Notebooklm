@@ -99,6 +99,7 @@ async function selectNotebook(notebookId) {
         loadSources(notebookId),
         loadChatHistory(notebookId),
         loadNotes(notebookId),
+        loadStudioOutputs(notebookId),
     ]);
 }
 
@@ -472,8 +473,134 @@ async function saveNote(content, citations) {
 }
 
 refreshNotesBtn.addEventListener('click', () => {
-    if (currentNotebookId) loadNotes(currentNotebookId);
+    if (currentNotebookId) {
+        loadNotes(currentNotebookId);
+        loadStudioOutputs(currentNotebookId);
+    }
 });
+
+// ---------------------------------------------------------------------------
+// S-21: Text Studio
+// ---------------------------------------------------------------------------
+let selectedStudioType = 'summary';
+const generateBtn  = document.getElementById('generate-btn');
+const studioList   = document.getElementById('studio-list');
+
+function switchPane(pane) {
+    document.getElementById('panel-notes').classList.toggle('visible', pane === 'notes');
+    document.getElementById('panel-studio').classList.toggle('visible', pane === 'studio');
+    document.getElementById('tab-notes').classList.toggle('active', pane === 'notes');
+    document.getElementById('tab-studio').classList.toggle('active', pane === 'studio');
+    if (pane === 'studio' && currentNotebookId) loadStudioOutputs(currentNotebookId);
+}
+
+function selectStudioType(btn) {
+    document.querySelectorAll('.studio-type-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedStudioType = btn.dataset.type;
+}
+
+async function generateStudioOutput() {
+    if (!currentNotebookId) { alert('请先选择一个 Notebook。'); return; }
+    generateBtn.disabled = true;
+    generateBtn.textContent = '生成中…';
+
+    // Show spinner in list
+    const spinner = document.createElement('p');
+    spinner.className = 'studio-generating';
+    spinner.textContent = '⚡ 正在生成，请稍候…';
+    studioList.prepend(spinner);
+
+    try {
+        const resp = await fetch(`/api/v1/notebooks/${currentNotebookId}/studio/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ output_type: selectedStudioType }),
+        });
+        spinner.remove();
+        if (!resp.ok) {
+            const err = await resp.json();
+            addMessage('system', `Studio 生成失败 ${resp.status}: ${err.detail}`);
+            return;
+        }
+        const output = await resp.json();
+        // Show result in chat pane
+        addMessage('assistant', output.content, output.citations || []);
+        // Refresh studio list
+        await loadStudioOutputs(currentNotebookId);
+    } catch (e) {
+        spinner.remove();
+        addMessage('system', 'Studio 生成失败：无法连接到服务器。');
+    } finally {
+        generateBtn.disabled = false;
+        generateBtn.textContent = '⚡ 生成';
+    }
+}
+
+async function loadStudioOutputs(notebookId) {
+    if (!notebookId) return;
+    try {
+        const resp = await fetch(`/api/v1/notebooks/${notebookId}/studio`);
+        if (!resp.ok) return;
+        renderStudioOutputs(await resp.json());
+    } catch (e) {
+        console.error('loadStudioOutputs error', e);
+    }
+}
+
+const TYPE_LABELS = {
+    summary: '执行摘要', faq: 'FAQ', briefing: '技术简报',
+    glossary: '术语表', action_items: '行动项',
+};
+
+function renderStudioOutputs(outputs) {
+    if (!outputs.length) {
+        studioList.innerHTML = '<p class="empty-hint">No generated outputs</p>';
+        return;
+    }
+    studioList.innerHTML = '';
+    for (const out of [...outputs].reverse()) {
+        const div = document.createElement('div');
+        div.className = 'studio-item';
+        const date = new Date(out.created_at).toLocaleString();
+        div.innerHTML = `
+            <div class="studio-item-type">${escapeHtml(TYPE_LABELS[out.output_type] || out.output_type)}</div>
+            <div class="studio-item-title">${escapeHtml(out.title)}</div>
+            <div class="studio-item-meta">${escapeHtml(date)}</div>
+            <div class="studio-item-actions">
+                <button class="toolbar-btn" onclick="expandStudioOutput('${out.id}')">查看</button>
+                <button class="toolbar-btn" onclick="saveStudioAsNote('${out.id}')">存为笔记</button>
+                <button class="toolbar-btn danger" onclick="deleteStudioOutput('${out.id}')">&#128465;</button>
+            </div>
+        `;
+        studioList.appendChild(div);
+    }
+}
+
+window.expandStudioOutput = async (outputId) => {
+    if (!currentNotebookId) return;
+    const resp = await fetch(`/api/v1/notebooks/${currentNotebookId}/studio/${outputId}`);
+    const out = await resp.json();
+    addMessage('assistant', out.content, out.citations || []);
+};
+
+window.saveStudioAsNote = async (outputId) => {
+    if (!currentNotebookId) return;
+    const resp = await fetch(
+        `/api/v1/notebooks/${currentNotebookId}/studio/${outputId}/save-as-note`,
+        { method: 'POST' }
+    );
+    if (resp.ok) {
+        await loadNotes(currentNotebookId);
+        switchPane('notes');
+    }
+};
+
+window.deleteStudioOutput = async (outputId) => {
+    if (!currentNotebookId) return;
+    await fetch(`/api/v1/notebooks/${currentNotebookId}/studio/${outputId}`, { method: 'DELETE' });
+    await loadStudioOutputs(currentNotebookId);
+};
 
 // ---------------------------------------------------------------------------
 // Utilities

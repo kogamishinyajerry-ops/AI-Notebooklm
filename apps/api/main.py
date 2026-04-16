@@ -29,6 +29,9 @@ from core.storage.notebook_store import NotebookStore
 from core.storage.source_registry import SourceRegistry
 from core.storage.note_store import NoteStore
 from core.storage.chat_history_store import ChatHistoryStore
+from core.storage.studio_store import StudioStore
+from core.models.studio_output import StudioOutputType
+from core.governance.prompts import STUDIO_PROMPTS
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
 
@@ -39,6 +42,7 @@ notebook_store = NotebookStore()
 source_registry = SourceRegistry()
 note_store = NoteStore()
 chat_history_store = ChatHistoryStore()
+studio_store = StudioStore()
 
 
 @app.on_event("startup")
@@ -533,3 +537,138 @@ def delete_note(notebook_id: str, note_id: str):
         raise HTTPException(status_code=404, detail="Notebook not found")
     if not note_store.delete(notebook_id, note_id):
         raise HTTPException(status_code=404, detail="Note not found")
+
+
+# ---------------------------------------------------------------------------
+# S-21: Text Studio endpoints
+# ---------------------------------------------------------------------------
+
+class StudioGenerateRequest(BaseModel):
+    output_type: str          # one of StudioOutputType values
+    source_ids: Optional[List[str]] = None  # None = all READY sources in notebook
+
+
+@app.post("/api/v1/notebooks/{notebook_id}/studio/generate", status_code=201)
+async def generate_studio_output(notebook_id: str, request: StudioGenerateRequest):
+    """Generate a structured text output from notebook sources using the local LLM."""
+    notebook = notebook_store.get(notebook_id)
+    if notebook is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    # Validate output type
+    if request.output_type not in StudioOutputType.values():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid output_type '{request.output_type}'. "
+                   f"Must be one of: {StudioOutputType.values()}"
+        )
+
+    # Resolve source_ids (use all READY sources if not specified)
+    source_ids = request.source_ids
+    if not source_ids:
+        all_sources = source_registry.list_by_notebook(notebook_id)
+        source_ids = [
+            s.id for s in all_sources
+            if getattr(s, "status", None) in ("ready", "READY")
+        ]
+
+    if not source_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="No READY sources available in this notebook for generation."
+        )
+
+    # Retrieve context chunks
+    try:
+        chunks = retriever_engine.retrieve(
+            query=request.output_type,
+            top_k=20,
+            final_k=20,
+            source_ids=source_ids,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Retrieval error: {exc}")
+
+    if not chunks:
+        raise HTTPException(
+            status_code=422,
+            detail="No relevant content found in the specified sources."
+        )
+
+    # Build prompt and invoke LLM
+    context_blocks = build_context_block(chunks)
+    studio_prompt = STUDIO_PROMPTS[request.output_type].format(
+        context_blocks=context_blocks
+    )
+
+    try:
+        raw_response = invoke_local_llm(
+            system_prompt=studio_prompt,
+            user_query=f"请生成: {request.output_type}",
+        )
+    except LLMUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    # Gateway validation (citations optional for studio outputs)
+    try:
+        _is_valid, safe_content, citations = AntiHallucinationGateway.validate_and_parse(
+            raw_response, chunks
+        )
+    except Exception:
+        # If gateway fails, use raw response with empty citations
+        safe_content = raw_response
+        citations = []
+
+    # Persist and return
+    output = studio_store.create(
+        notebook_id=notebook_id,
+        output_type=request.output_type,
+        content=safe_content,
+        citations=citations,
+    )
+    return output.to_dict()
+
+
+@app.get("/api/v1/notebooks/{notebook_id}/studio")
+def list_studio_outputs(notebook_id: str):
+    """List all generated studio outputs for a notebook."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return [o.to_dict() for o in studio_store.list_by_notebook(notebook_id)]
+
+
+@app.get("/api/v1/notebooks/{notebook_id}/studio/{output_id}")
+def get_studio_output(notebook_id: str, output_id: str):
+    """Get a specific studio output."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    output = studio_store.get(notebook_id, output_id)
+    if output is None:
+        raise HTTPException(status_code=404, detail="Studio output not found")
+    return output.to_dict()
+
+
+@app.delete("/api/v1/notebooks/{notebook_id}/studio/{output_id}", status_code=204)
+def delete_studio_output(notebook_id: str, output_id: str):
+    """Delete a studio output."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    if not studio_store.delete(notebook_id, output_id):
+        raise HTTPException(status_code=404, detail="Studio output not found")
+
+
+@app.post("/api/v1/notebooks/{notebook_id}/studio/{output_id}/save-as-note", status_code=201)
+def save_studio_as_note(notebook_id: str, output_id: str):
+    """Save a studio output as a Note (persisted in NoteStore)."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    output = studio_store.get(notebook_id, output_id)
+    if output is None:
+        raise HTTPException(status_code=404, detail="Studio output not found")
+    note = note_store.create(
+        notebook_id=notebook_id,
+        content=output.content,
+        citations=output.citations,
+        title=output.title,
+    )
+    return note.to_dict()
