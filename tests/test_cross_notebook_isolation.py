@@ -197,6 +197,15 @@ def _install_stubs():
     src_reg_mod = _stub("core.storage.source_registry")
     src_reg_mod.SourceRegistry = MagicMock
 
+    note_store_mod = _stub("core.storage.note_store")
+    note_store_mod.NoteStore = MagicMock
+
+    chat_hist_mod = _stub("core.storage.chat_history_store")
+    chat_hist_mod.ChatHistoryStore = MagicMock
+
+    _stub("core.models.note")
+    _stub("core.models.chat_message")
+
 
 def _make_retriever(vs: RecordingVectorStore):
     """Build a RetrieverEngine with all heavy sub-components replaced."""
