@@ -38,6 +38,11 @@ from core.models.studio_output import StudioOutputType
 from core.governance.prompts import STUDIO_PROMPTS
 from core.storage.graph_store import GraphStore
 from core.knowledge.graph_extractor import GraphExtractor
+from core.llm.vllm_client import (
+    LLMConfigurationError,
+    get_local_llm_config,
+    probe_local_llm,
+)
 from core.security.auth import AuthPrincipal, auth_is_enabled, get_current_principal
 from core.observability.logging_utils import emit_json_log
 
@@ -189,6 +194,13 @@ def api_health_check():
         "transactions": summarize_transaction_health(base_dir=source_registry.spaces_dir),
     }
 
+@app.get("/api/v1/llm/health")
+def llm_health_check():
+    try:
+        return probe_local_llm()
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
 @app.post("/api/v1/spaces")
 def create_space(
     name: str,
@@ -298,15 +310,16 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
         LLMUnavailableError: If the vLLM service is unreachable or returns
             a non-2xx response, so callers can return HTTP 503.
     """
-    # Use a dedicated inference port by default so the API does not
-    # accidentally point back to itself when VLLM_URL is unset.
-    vllm_url = os.getenv("VLLM_URL", "http://localhost:8001/v1").rstrip("/")
-    model_name = os.getenv("LOCAL_LLM_MODEL", "qwen-2.5")
+    try:
+        config = get_local_llm_config()
+    except LLMConfigurationError as exc:
+        raise LLMUnavailableError(str(exc)) from exc
+
     try:
         resp = requests.post(
-            f"{vllm_url}/chat/completions",
+            f"{config.base_url}/chat/completions",
             json={
-                "model": model_name,
+                "model": config.model_name,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_query},
@@ -318,7 +331,7 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
         return resp.json()["choices"][0]["message"]["content"]
     except Exception as exc:
         raise LLMUnavailableError(
-            f"Local LLM service unavailable at {vllm_url}: {exc}"
+            f"Local LLM service unavailable at {config.base_url}: {exc}"
         ) from exc
 
 @app.post("/api/v1/chat", response_model=ChatResponse)

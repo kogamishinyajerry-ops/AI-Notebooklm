@@ -36,6 +36,18 @@ Build/runtime behavior:
 - Runtime sets `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `EMBEDDING_LOCAL_FILES_ONLY=1`, and `RERANKER_LOCAL_FILES_ONLY=1` to prevent fallback downloads.
 - `docker-compose.yml` includes an HTTP health check against `/api/v1/health` so deployment state is visible without attaching to logs.
 - The default `VLLM_URL` placeholder now points to port `8001` to avoid colliding with the FastAPI service on `8000`; override it to the real local inference endpoint in each deployment.
+- `/api/v1/llm/health` can be used after deployment to verify the configured OpenAI-compatible vLLM endpoint is reachable.
+- By default, `VLLM_URL` must resolve to localhost/private-network infrastructure. Set `ALLOW_REMOTE_VLLM=1` only when you intentionally trust a non-private inference route.
+
+Useful validation commands:
+
+```bash
+# API-side probe of the configured vLLM endpoint
+curl http://localhost:8000/api/v1/llm/health
+
+# CLI-side probe for staging/ops checks
+python3 scripts/check_vllm_endpoint.py
+```
 
 ## 🛡️ Governance Constraints
 

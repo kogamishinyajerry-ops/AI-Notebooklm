@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+import sys
+import types
+from unittest.mock import MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+def _stub(name: str) -> types.ModuleType:
+    mod = types.ModuleType(name)
+    sys.modules[name] = mod
+    return mod
+
+
+def _install_stubs() -> None:
+    if "services.ingestion.service" not in sys.modules:
+        _stub("services.ingestion")
+        svc_mod = _stub("services.ingestion.service")
+
+        class _FakeIngestionService:
+            def __init__(self):
+                self.vector_store = MagicMock()
+
+        svc_mod.IngestionService = _FakeIngestionService
+
+    if "services.ingestion.filenames" not in sys.modules:
+        fn_mod = _stub("services.ingestion.filenames")
+        fn_mod.safe_upload_path = MagicMock()
+        fn_mod.validate_pdf_magic = MagicMock()
+
+    if "core.ingestion.transaction" not in sys.modules:
+        tx_mod = _stub("core.ingestion.transaction")
+        tx_mod.IngestTransaction = MagicMock
+        tx_mod.cleanup_committed_transactions = MagicMock()
+        tx_mod.iter_space_ids = MagicMock(return_value=[])
+        tx_mod.recover_incomplete_transactions = MagicMock()
+        tx_mod.summarize_transaction_health = MagicMock(return_value={})
+
+    if "core.retrieval.retriever" not in sys.modules:
+        retr_mod = _stub("core.retrieval.retriever")
+
+        class _FakeRetrieverEngine:
+            def __init__(self):
+                self.graph_store = None
+                self.graph_extractor = None
+
+            def retrieve(self, *args, **kwargs):
+                return []
+
+        retr_mod.RetrieverEngine = _FakeRetrieverEngine
+
+    if "core.governance.prompts" not in sys.modules:
+        prompts_mod = _stub("core.governance.prompts")
+        prompts_mod.QA_SYSTEM_PROMPT = "{context_blocks}"
+        prompts_mod.build_context_block = lambda ctxs: str(ctxs)
+        prompts_mod.STUDIO_PROMPTS = {
+            key: "{context_blocks}"
+            for key in ("summary", "faq", "briefing", "glossary", "action_items")
+        }
+
+    if "core.governance.gateway" not in sys.modules:
+        gateway_mod = _stub("core.governance.gateway")
+
+        class _Gateway:
+            @staticmethod
+            def validate_and_parse(raw_response, contexts):
+                return True, "safe response", []
+
+        gateway_mod.AntiHallucinationGateway = _Gateway
+
+    if "core.models.source" not in sys.modules:
+        src_mod = _stub("core.models.source")
+
+        class _SourceStatus:
+            UPLOADING = "UPLOADING"
+            PROCESSING = "PROCESSING"
+            READY = "READY"
+            FAILED = "FAILED"
+
+        src_mod.SourceStatus = _SourceStatus
+
+    for name in (
+        "core.storage.notebook_store",
+        "core.storage.source_registry",
+        "core.storage.note_store",
+        "core.storage.chat_history_store",
+        "core.storage.studio_store",
+        "core.storage.graph_store",
+        "core.knowledge.graph_extractor",
+    ):
+        if name not in sys.modules:
+            mod = _stub(name)
+            mod_name = name.rsplit(".", 1)[-1]
+            class_name = "".join(part.capitalize() for part in mod_name.split("_"))
+            setattr(mod, class_name, MagicMock)
+
+    if "core.models.studio_output" not in sys.modules:
+        so_mod = _stub("core.models.studio_output")
+
+        class _StudioOutputType:
+            @staticmethod
+            def values():
+                return ["summary", "faq", "briefing", "glossary", "action_items"]
+
+        so_mod.StudioOutputType = _StudioOutputType
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_stubbed_modules():
+    yield
+    for mod in (
+        "apps.api.main",
+        "core.retrieval.retriever",
+    ):
+        sys.modules.pop(mod, None)
+
+
+def _import_api():
+    _install_stubs()
+    sys.modules.pop("apps.api.main", None)
+    import apps.api.main  # noqa: PLC0415
+
+    return sys.modules["apps.api.main"]
+
+
+def test_llm_health_endpoint_returns_probe_payload():
+    api_main = _import_api()
+    api_main.probe_local_llm = MagicMock(
+        return_value={
+            "status": "ok",
+            "reachable": True,
+            "configured_url": "http://localhost:8001/v1",
+            "models": ["qwen-2.5"],
+        }
+    )
+
+    client = TestClient(api_main.app)
+    resp = client.get("/api/v1/llm/health")
+
+    assert resp.status_code == 200
+    assert resp.json()["reachable"] is True
+    assert resp.json()["configured_url"] == "http://localhost:8001/v1"
+
+
+def test_llm_health_endpoint_returns_503_for_misconfiguration():
+    api_main = _import_api()
+    api_main.probe_local_llm = MagicMock(
+        side_effect=api_main.LLMConfigurationError("VLLM_URL must point to a localhost/private-network inference service unless ALLOW_REMOTE_VLLM=1 is explicitly set.")
+    )
+
+    client = TestClient(api_main.app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/llm/health")
+
+    assert resp.status_code == 503
+    assert "VLLM_URL" in resp.json()["detail"]
