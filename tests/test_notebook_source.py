@@ -101,13 +101,53 @@ class FakeIngestionService:
 
 def import_api_with_fakes(monkeypatch, tmp_path, should_fail=False):
     monkeypatch.setitem(sys.modules, "fitz", types.SimpleNamespace(open=lambda file_path: None))
+
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+    fake_sentence_transformers.SentenceTransformer = FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    fake_chromadb = types.ModuleType("chromadb")
+    fake_chromadb_config = types.ModuleType("chromadb.config")
+    fake_chromadb_config.Settings = dict
+    fake_chromadb.PersistentClient = FakeClient
+    fake_chromadb.config = fake_chromadb_config
+    monkeypatch.setitem(sys.modules, "chromadb", fake_chromadb)
+    monkeypatch.setitem(sys.modules, "chromadb.config", fake_chromadb_config)
+
+    for name in (
+        "services.ingestion.parser",
+        "services.ingestion.chunker",
+        "services.ingestion.filenames",
+        "services.ingestion.service",
+        "services.ingestion",
+        "services",
+        "core.models.source",
+        "core.models.note",
+        "core.models.chat_message",
+        "core.models.studio_output",
+        "core.models.graph",
+        "core.models",
+        "core.storage.notebook_store",
+        "core.storage.source_registry",
+        "core.storage.note_store",
+        "core.storage.chat_history_store",
+        "core.storage.studio_store",
+        "core.storage.graph_store",
+        "core.storage",
+        "core.knowledge.graph_extractor",
+        "core.knowledge",
+        "core.ingestion.transaction",
+        "core.retrieval.embeddings",
+        "core.retrieval.vector_store",
+        "core.retrieval.retriever",
+        "core.retrieval.bm25_index",
+        "core.retrieval.query_expander",
+        "apps.api.main",
+    ):
+        sys.modules.pop(name, None)
     import core.retrieval.embeddings as embeddings
 
     monkeypatch.setattr(embeddings, "SentenceTransformer", FakeSentenceTransformer)
-    monkeypatch.setattr("core.retrieval.vector_store.chromadb.PersistentClient", FakeClient)
-    sys.modules.pop("services.ingestion.parser", None)
-    sys.modules.pop("services.ingestion.service", None)
-    sys.modules.pop("apps.api.main", None)
     api = importlib.import_module("apps.api.main")
     api.notebook_store = NotebookStore(
         notebooks_path=tmp_path / "notebooks.json",

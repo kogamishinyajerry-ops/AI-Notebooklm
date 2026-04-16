@@ -148,6 +148,23 @@ def _install_stubs():
     vs_mod = _stub("core.retrieval.vector_store")
     vs_mod.VectorStoreAdapter = RecordingVectorStore
 
+    class _FakeBM25Index:
+        """Stub BM25 index: always empty (size=0) so hybrid degrades to vector-only."""
+        size = 0
+        def build(self, corpus): pass
+        def query(self, query, top_k=10, extra_tokens=None): return []
+
+    bm25_mod = _stub("core.retrieval.bm25_index")
+    bm25_mod.BM25Index = _FakeBM25Index
+
+    class _FakeQueryExpander:
+        """Stub query expander: no-op (returns original query, no extra tokens)."""
+        def expand(self, query):
+            return query, []
+
+    qe_mod = _stub("core.retrieval.query_expander")
+    qe_mod.QueryExpander = _FakeQueryExpander
+
     # ---- services.ingestion ----
     _stub("services.ingestion")
     svc_mod = _stub("services.ingestion.service")
@@ -176,6 +193,8 @@ def _install_stubs():
     prompts_mod = _stub("core.governance.prompts")
     prompts_mod.QA_SYSTEM_PROMPT = "{context_blocks}"
     prompts_mod.build_context_block = lambda ctxs: str(ctxs)
+    prompts_mod.STUDIO_PROMPTS = {t: "{context_blocks}" for t in
+        ("summary", "faq", "briefing", "glossary", "action_items")}
 
     # ---- core.models ----
     _stub("core.models")
@@ -197,15 +216,58 @@ def _install_stubs():
     src_reg_mod = _stub("core.storage.source_registry")
     src_reg_mod.SourceRegistry = MagicMock
 
+    note_store_mod = _stub("core.storage.note_store")
+    note_store_mod.NoteStore = MagicMock
+
+    chat_hist_mod = _stub("core.storage.chat_history_store")
+    chat_hist_mod.ChatHistoryStore = MagicMock
+
+    studio_store_mod = _stub("core.storage.studio_store")
+    studio_store_mod.StudioStore = MagicMock
+
+    graph_store_mod = _stub("core.storage.graph_store")
+    graph_store_mod.GraphStore = MagicMock
+
+    _stub("core.models.note")
+    _stub("core.models.chat_message")
+    so_mod = _stub("core.models.studio_output")
+    class _StudioOutputType:
+        @staticmethod
+        def values():
+            return ["summary", "faq", "briefing", "glossary", "action_items"]
+    so_mod.StudioOutputType = _StudioOutputType
+
+    _stub("core.models.graph")
+
+    _stub("core.knowledge")
+    graph_ext_mod = _stub("core.knowledge.graph_extractor")
+    graph_ext_mod.GraphExtractor = MagicMock
+
+
+class _FakeBM25IndexInstance:
+    """Minimal BM25 instance for retriever tests: always empty."""
+    size = 0
+    def build(self, corpus): pass
+    def query(self, query, top_k=10, extra_tokens=None): return []
+
+
+class _FakeQueryExpanderInstance:
+    """No-op query expander."""
+    def expand(self, query):
+        return query, []
+
 
 def _make_retriever(vs: RecordingVectorStore):
     """Build a RetrieverEngine with all heavy sub-components replaced."""
     _install_stubs()
+    sys.modules.pop("core.retrieval.retriever", None)
     from core.retrieval.retriever import RetrieverEngine  # noqa: PLC0415
     r = RetrieverEngine.__new__(RetrieverEngine)
     r.embedding_manager = FakeEmbeddingManager()
     r.vector_store = vs
     r.reranker = FakeReranker()
+    r.bm25_index = _FakeBM25IndexInstance()
+    r.query_expander = _FakeQueryExpanderInstance()
     return r
 
 
@@ -282,10 +344,11 @@ def test_after_source_removal_source_id_absent_from_filter():
 # ---------------------------------------------------------------------------
 
 def _import_api():
-    """Import apps.api.main, using stub cache if already loaded."""
+    """Import apps.api.main against a fresh stubbed dependency graph."""
     _install_stubs()
-    if "apps.api.main" not in sys.modules:
-        import apps.api.main  # noqa: PLC0415
+    sys.modules.pop("core.retrieval.retriever", None)
+    sys.modules.pop("apps.api.main", None)
+    import apps.api.main  # noqa: PLC0415
     return sys.modules["apps.api.main"]
 
 
@@ -323,7 +386,7 @@ def _build_app_with_fakes(notebook_sources_map: dict, llm_raises: bool = False):
     vs = RecordingVectorStore()
     retriever = _make_retriever(vs)
     mock_retriever = MagicMock()
-    def do_retrieve(query, top_k, final_k, source_ids=None):
+    def do_retrieve(query, top_k, final_k, source_ids=None, notebook_id=None, **kwargs):
         return retriever.retrieve(query, top_k=top_k, final_k=final_k, source_ids=source_ids)
     mock_retriever.retrieve.side_effect = do_retrieve
 
@@ -397,6 +460,24 @@ def test_chat_endpoint_returns_400_for_unknown_notebook():
     resp = client.post("/api/v1/chat", json={"query": "test", "notebook_id": "ghost-nb"})
 
     assert resp.status_code == 400
+
+
+def test_chat_endpoint_short_circuits_when_notebook_has_no_sources():
+    """
+    A notebook with zero sources must not fall back to an unscoped vector query.
+    It should return the standard empty-knowledge response immediately.
+    """
+    from fastapi.testclient import TestClient  # noqa: PLC0415
+
+    app, vs = _build_app_with_fakes(notebook_sources_map={"empty-nb": []})
+    client = TestClient(app)
+
+    resp = client.post("/api/v1/chat", json={"query": "test", "notebook_id": "empty-nb"})
+
+    assert resp.status_code == 200
+    assert "未在当前知识库中检索到相关内容" in resp.json()["answer"]
+    assert resp.json()["citations"] == []
+    assert vs.last_where is None
 
 
 def test_chat_accepts_legacy_space_id_alias():
