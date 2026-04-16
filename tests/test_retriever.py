@@ -3,10 +3,44 @@ test_retriever.py
 =================
 Basic contract tests for RetrieverEngine.
 Updated for S-22: make_retriever sets bm25_index and query_expander.
+Updated for S-23: stubs installed at module level so file can run standalone.
 """
+import sys
+import types
+from unittest.mock import MagicMock
+
+
+# ---------------------------------------------------------------------------
+# Stubs — must be installed before any core.retrieval imports
+# ---------------------------------------------------------------------------
+
+def _stub(name):
+    mod = types.ModuleType(name)
+    sys.modules[name] = mod
+    return mod
+
+
+for _name in ("sentence_transformers", "chromadb", "fitz", "transformers", "torch",
+              "tenacity"):
+    if _name not in sys.modules:
+        s = _stub(_name)
+        if _name == "chromadb":
+            cfg = _stub("chromadb.config")
+            cfg.Settings = dict
+            s.PersistentClient = MagicMock
+            s.config = cfg
+
+for _name in ("core.retrieval.embeddings", "core.retrieval.reranker",
+              "core.retrieval.vector_store"):
+    if _name not in sys.modules:
+        mod = _stub(_name)
+        mod.EmbeddingManager = MagicMock
+        mod.CrossEncoderReranker = MagicMock
+        mod.VectorStoreAdapter = MagicMock
+
+# ---------------------------------------------------------------------------
+
 from core.retrieval.retriever import RetrieverEngine
-from core.retrieval.bm25_index import BM25Index
-from core.retrieval.query_expander import QueryExpander
 
 
 class FakeEmbedding:
@@ -50,13 +84,23 @@ class FakeReranker:
         return chunks[:top_n]
 
 
+class _FakeBM25Index:
+    size = 0
+    def build(self, corpus): pass
+    def query(self, q, top_k=10, extra_tokens=None): return []
+
+
+class _FakeQueryExpander:
+    def expand(self, query): return query, []
+
+
 def make_retriever():
     retriever = RetrieverEngine.__new__(RetrieverEngine)
     retriever.embedding_manager = FakeEmbeddingManager()
     retriever.vector_store = FakeVectorStore()
     retriever.reranker = FakeReranker()
-    retriever.bm25_index = BM25Index()       # empty — hybrid degrades to vector-only
-    retriever.query_expander = QueryExpander()
+    retriever.bm25_index = _FakeBM25Index()    # empty — hybrid degrades to vector-only
+    retriever.query_expander = _FakeQueryExpander()
     return retriever
 
 

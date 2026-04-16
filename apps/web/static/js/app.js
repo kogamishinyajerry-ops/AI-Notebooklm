@@ -613,3 +613,159 @@ function escapeHtml(str) {
 function escapeAttr(str) {
     return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
+
+// ---------------------------------------------------------------------------
+// S-23: Knowledge Graph / Mind Map
+// ---------------------------------------------------------------------------
+
+// ── switchPane: extend to handle 'graph' tab ──────────────────────────────
+const _origSwitchPane = switchPane;
+switchPane = function(pane) {
+    _origSwitchPane(pane);
+    // additional panel handling for 'graph'
+    const graphPanel = document.getElementById('panel-graph');
+    const graphTab   = document.getElementById('tab-graph');
+    if (!graphPanel || !graphTab) return;
+    if (pane === 'graph') {
+        graphPanel.classList.add('visible');
+        graphTab.classList.add('active');
+        if (currentNotebookId) loadGraph(currentNotebookId);
+    } else {
+        graphPanel.classList.remove('visible');
+        graphTab.classList.remove('active');
+    }
+};
+
+async function generateGraph() {
+    if (!currentNotebookId) return;
+    const status = document.getElementById('graph-status');
+    const svg    = document.getElementById('mindmap-svg');
+    if (status) status.textContent = '⏳ 正在提取知识图谱...';
+    if (svg)    svg.innerHTML = '';
+    try {
+        const resp = await fetch(`/api/v1/notebooks/${currentNotebookId}/graph/generate`, { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            if (status) status.textContent = '⚠ ' + (err.detail || resp.statusText);
+            return;
+        }
+        const graph = await resp.json();
+        renderMindMap(graph.mindmap, graph.nodes);
+        if (status) status.textContent = '';
+    } catch (e) {
+        if (status) status.textContent = '⚠ 生成失败: ' + e.message;
+    }
+}
+
+async function loadGraph(notebookId) {
+    const status = document.getElementById('graph-status');
+    const svg    = document.getElementById('mindmap-svg');
+    if (!svg) return;
+    svg.innerHTML = '';
+    try {
+        const resp = await fetch(`/api/v1/notebooks/${notebookId}/graph`);
+        if (resp.status === 404) {
+            if (status) status.textContent = '尚未生成图谱，点击「生成知识图谱」';
+            return;
+        }
+        if (!resp.ok) return;
+        const graph = await resp.json();
+        renderMindMap(graph.mindmap, graph.nodes);
+        if (status) status.textContent = '';
+    } catch (_) {
+        if (status) status.textContent = '加载失败';
+    }
+}
+
+// ── Pure-JS radial mind-map SVG renderer ─────────────────────────────────
+function renderMindMap(mindmap, nodes) {
+    const svg = document.getElementById('mindmap-svg');
+    if (!svg || !mindmap) return;
+    svg.innerHTML = '';
+
+    const W = svg.clientWidth  || 340;
+    const H = svg.clientHeight || 420;
+    const cx = W / 2, cy = H / 2;
+
+    const positions = {};  // id -> {x, y}
+
+    // BFS layout: root at center, children on concentric circles
+    const RADII = [0, 80, 160, 230];
+    const queue = [{ node: mindmap, depth: 0, angleStart: 0, angleEnd: 2 * Math.PI }];
+    const allNodes = [];
+    const allEdges = [];
+
+    while (queue.length) {
+        const { node, depth, angleStart, angleEnd } = queue.shift();
+        const angle = (angleStart + angleEnd) / 2;
+        const r     = RADII[Math.min(depth, RADII.length - 1)];
+        const x     = cx + r * Math.cos(angle);
+        const y     = cy + r * Math.sin(angle);
+        positions[node.id] = { x, y };
+        allNodes.push({ node, x, y, depth });
+
+        if (node.children && node.children.length) {
+            const span  = (angleEnd - angleStart) / node.children.length;
+            node.children.forEach((child, i) => {
+                allEdges.push({ parent: node.id, child: child.id });
+                queue.push({
+                    node: child,
+                    depth: depth + 1,
+                    angleStart: angleStart + i * span,
+                    angleEnd:   angleStart + (i + 1) * span,
+                });
+            });
+        }
+    }
+
+    // Draw edges first
+    const svgNS = 'http://www.w3.org/2000/svg';
+    allEdges.forEach(({ parent, child }) => {
+        const p = positions[parent], c = positions[child];
+        if (!p || !c) return;
+        // Cubic bezier for organic look
+        const mx = (p.x + c.x) / 2, my = (p.y + c.y) / 2;
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', `M${p.x},${p.y} Q${mx},${my} ${c.x},${c.y}`);
+        path.setAttribute('class', 'mm-edge');
+        svg.appendChild(path);
+    });
+
+    // Draw nodes
+    allNodes.forEach(({ node, x, y, depth }) => {
+        const g = document.createElementNS(svgNS, 'g');
+        g.setAttribute('class', 'mm-node');
+        g.setAttribute('transform', `translate(${x},${y})`);
+
+        // Radius scales with weight and depth
+        const baseR = depth === 0 ? 28 : depth === 1 ? 20 : 14;
+        const r = baseR * (0.6 + 0.4 * (node.weight || 0.5));
+
+        const circle = document.createElementNS(svgNS, 'circle');
+        circle.setAttribute('r', r);
+        circle.setAttribute('opacity', 0.7 + 0.3 * (node.weight || 0.5));
+        // Click node → trigger chat query
+        circle.addEventListener('click', () => {
+            if (currentNotebookId) {
+                document.getElementById('query-input').value = node.label;
+                sendMessage();
+            }
+        });
+        g.appendChild(circle);
+
+        const text = document.createElementNS(svgNS, 'text');
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dy', '0.35em');
+        // Truncate label for small nodes
+        const maxLen = depth === 0 ? 6 : depth === 1 ? 4 : 3;
+        text.textContent = node.label.length > maxLen ? node.label.slice(0, maxLen) + '…' : node.label;
+        g.appendChild(text);
+
+        // Tooltip: full label on hover
+        const title = document.createElementNS(svgNS, 'title');
+        title.textContent = `${node.label} (${(node.weight * 100).toFixed(0)}%)`;
+        g.appendChild(title);
+
+        svg.appendChild(g);
+    });
+}

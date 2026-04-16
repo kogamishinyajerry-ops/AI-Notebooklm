@@ -282,7 +282,8 @@ def _install_api_stubs():
     for name in ["core.governance.prompts", "core.governance.gateway",
                  "core.models.source", "core.storage.notebook_store",
                  "core.storage.source_registry", "core.storage.studio_store",
-                 "core.models.studio_output"]:
+                 "core.models.studio_output", "core.storage.graph_store",
+                 "core.models.graph", "core.knowledge", "core.knowledge.graph_extractor"]:
         sys.modules.setdefault(name, _stub(name))
 
     prompts = sys.modules["core.governance.prompts"]
@@ -324,6 +325,14 @@ def _install_api_stubs():
             def values():
                 return ["summary", "faq", "briefing", "glossary", "action_items"]
         so_mod.StudioOutputType = _SOT
+
+    gs_mod = sys.modules["core.storage.graph_store"]
+    if not hasattr(gs_mod, "GraphStore"):
+        gs_mod.GraphStore = MagicMock
+
+    ge_mod = sys.modules["core.knowledge.graph_extractor"]
+    if not hasattr(ge_mod, "GraphExtractor"):
+        ge_mod.GraphExtractor = MagicMock
 
 
 def _get_app(tmp_path):

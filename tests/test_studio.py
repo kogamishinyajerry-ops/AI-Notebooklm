@@ -207,8 +207,17 @@ def _install_api_stubs():
 
     for name in ["core.governance.gateway",
                  "core.models.source", "core.storage.notebook_store",
-                 "core.storage.source_registry"]:
+                 "core.storage.source_registry", "core.storage.graph_store",
+                 "core.models.graph", "core.knowledge", "core.knowledge.graph_extractor"]:
         sys.modules.setdefault(name, _stub(name))
+
+    gs_mod = sys.modules["core.storage.graph_store"]
+    if not hasattr(gs_mod, "GraphStore"):
+        gs_mod.GraphStore = MagicMock
+
+    ge_mod = sys.modules["core.knowledge.graph_extractor"]
+    if not hasattr(ge_mod, "GraphExtractor"):
+        ge_mod.GraphExtractor = MagicMock
 
     gw = sys.modules["core.governance.gateway"]
     if not hasattr(gw, "AntiHallucinationGateway"):

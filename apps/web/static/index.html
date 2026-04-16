@@ -91,6 +91,7 @@
                 <div class="pane-tabs">
                     <button class="pane-tab active" id="tab-notes" onclick="switchPane('notes')">&#128211; Notes</button>
                     <button class="pane-tab" id="tab-studio" onclick="switchPane('studio')">&#9881; Studio</button>
+                    <button class="pane-tab" id="tab-graph" onclick="switchPane('graph')">&#128506; 图谱</button>
                     <button id="refresh-notes-btn" class="icon-btn" title="Refresh" style="margin:0.3rem 0.4rem 0.3rem auto;flex-shrink:0;">&#8635;</button>
                 </div>
 
@@ -116,6 +117,15 @@
                     <div class="studio-list" id="studio-list">
                         <p class="empty-hint">No generated outputs</p>
                     </div>
+                </div>
+
+                <!-- Graph / Mind Map panel -->
+                <div class="pane-panel" id="panel-graph">
+                    <div class="graph-controls">
+                        <button class="generate-btn" id="generate-graph-btn" onclick="generateGraph()">&#9889; 生成知识图谱</button>
+                    </div>
+                    <div id="graph-status" class="empty-hint">选择 Notebook 后点击生成</div>
+                    <svg id="mindmap-svg" class="mindmap-svg" xmlns="http://www.w3.org/2000/svg"></svg>
                 </div>
             </aside>
 

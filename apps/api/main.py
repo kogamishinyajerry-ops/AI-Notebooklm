@@ -32,6 +32,8 @@ from core.storage.chat_history_store import ChatHistoryStore
 from core.storage.studio_store import StudioStore
 from core.models.studio_output import StudioOutputType
 from core.governance.prompts import STUDIO_PROMPTS
+from core.storage.graph_store import GraphStore
+from core.knowledge.graph_extractor import GraphExtractor
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
 
@@ -43,6 +45,8 @@ source_registry = SourceRegistry()
 note_store = NoteStore()
 chat_history_store = ChatHistoryStore()
 studio_store = StudioStore()
+graph_store = GraphStore()
+graph_extractor = GraphExtractor()
 
 
 @app.on_event("startup")
@@ -672,3 +676,57 @@ def save_studio_as_note(notebook_id: str, output_id: str):
         title=output.title,
     )
     return note.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# S-23: Knowledge Graph / Mind Map endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/notebooks/{notebook_id}/graph/generate", status_code=201)
+def generate_graph(notebook_id: str):
+    """
+    Extract entities and relations from all READY sources in a notebook,
+    build a knowledge graph + mind-map tree, and persist it.
+
+    Returns the full graph JSON.
+    """
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    sources = [
+        s for s in source_registry.list_by_notebook(notebook_id)
+        if s.status == "ready"
+    ]
+    if not sources:
+        raise HTTPException(status_code=422, detail="No ready sources in notebook")
+
+    source_ids = [s.id for s in sources]
+    chunks = retriever_engine.retrieve(
+        query="主要概念实体技术术语 key concepts technical terms",
+        top_k=50,
+        final_k=50,
+        source_ids=source_ids,
+        hybrid=False,      # pure vector for broad coverage
+        expand_query=False,
+        mmr_threshold=1.0, # no de-dup — we want max coverage for graph building
+    )
+
+    graph = graph_extractor.extract(chunks)
+    graph_store.save(notebook_id, graph)
+    return graph.to_dict()
+
+
+@app.get("/api/v1/notebooks/{notebook_id}/graph")
+def get_graph(notebook_id: str):
+    """
+    Return the previously generated knowledge graph for a notebook.
+    Returns 404 if graph has not been generated yet.
+    """
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    graph = graph_store.load(notebook_id)
+    if graph is None:
+        raise HTTPException(status_code=404, detail="Graph not yet generated")
+
+    return graph.to_dict()
