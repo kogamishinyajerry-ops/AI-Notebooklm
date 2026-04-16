@@ -222,10 +222,14 @@ def _make_retriever(vs: RecordingVectorStore):
     """Build a RetrieverEngine with all heavy sub-components replaced."""
     _install_stubs()
     from core.retrieval.retriever import RetrieverEngine  # noqa: PLC0415
+    from core.retrieval.bm25_index import BM25Index  # noqa: PLC0415
+    from core.retrieval.query_expander import QueryExpander  # noqa: PLC0415
     r = RetrieverEngine.__new__(RetrieverEngine)
     r.embedding_manager = FakeEmbeddingManager()
     r.vector_store = vs
     r.reranker = FakeReranker()
+    r.bm25_index = BM25Index()
+    r.query_expander = QueryExpander()
     return r
 
 
