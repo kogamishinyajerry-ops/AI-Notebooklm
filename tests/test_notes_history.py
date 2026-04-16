@@ -75,6 +75,8 @@ _patch_transaction()
 _REAL_STORE_MODULES = (
     "core.storage.note_store", "core.storage.chat_history_store",
     "core.models.note", "core.models.chat_message",
+    # S-21: not real modules in this test file but must be evicted if stubbed
+    "core.storage.studio_store", "core.models.studio_output",
 )
 # Also need to evict parent package stubs that block real submodule imports.
 # test_cross_notebook_isolation does _stub("core.storage") and _stub("core.models")
@@ -279,13 +281,17 @@ def _install_api_stubs():
 
     for name in ["core.governance.prompts", "core.governance.gateway",
                  "core.models.source", "core.storage.notebook_store",
-                 "core.storage.source_registry"]:
+                 "core.storage.source_registry", "core.storage.studio_store",
+                 "core.models.studio_output"]:
         sys.modules.setdefault(name, _stub(name))
 
     prompts = sys.modules["core.governance.prompts"]
     if not hasattr(prompts, "QA_SYSTEM_PROMPT"):
         prompts.QA_SYSTEM_PROMPT = "{context_blocks}"
         prompts.build_context_block = lambda x: str(x)
+    if not hasattr(prompts, "STUDIO_PROMPTS"):
+        prompts.STUDIO_PROMPTS = {t: "{context_blocks}" for t in
+            ("summary", "faq", "briefing", "glossary", "action_items")}
     gw = sys.modules["core.governance.gateway"]
     if not hasattr(gw, "AntiHallucinationGateway"):
         class _FakeGateway:
@@ -306,6 +312,18 @@ def _install_api_stubs():
         mod = sys.modules[mod_name]
         if not hasattr(mod, cls_name):
             setattr(mod, cls_name, MagicMock)
+
+    ss_mod = sys.modules["core.storage.studio_store"]
+    if not hasattr(ss_mod, "StudioStore"):
+        ss_mod.StudioStore = MagicMock
+
+    so_mod = sys.modules["core.models.studio_output"]
+    if not hasattr(so_mod, "StudioOutputType"):
+        class _SOT:
+            @staticmethod
+            def values():
+                return ["summary", "faq", "briefing", "glossary", "action_items"]
+        so_mod.StudioOutputType = _SOT
 
 
 def _get_app(tmp_path):
@@ -334,6 +352,7 @@ def _get_app(tmp_path):
     api.notebook_store = mock_nb_store
     api.note_store = NoteStore(spaces_dir=tmp_path)
     api.chat_history_store = ChatHistoryStore(spaces_dir=tmp_path)
+    # studio_store remains as MagicMock (not exercised in this test file)
 
     return api.app, api
 
