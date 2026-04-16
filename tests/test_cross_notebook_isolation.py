@@ -176,6 +176,8 @@ def _install_stubs():
     prompts_mod = _stub("core.governance.prompts")
     prompts_mod.QA_SYSTEM_PROMPT = "{context_blocks}"
     prompts_mod.build_context_block = lambda ctxs: str(ctxs)
+    prompts_mod.STUDIO_PROMPTS = {t: "{context_blocks}" for t in
+        ("summary", "faq", "briefing", "glossary", "action_items")}
 
     # ---- core.models ----
     _stub("core.models")
@@ -203,8 +205,17 @@ def _install_stubs():
     chat_hist_mod = _stub("core.storage.chat_history_store")
     chat_hist_mod.ChatHistoryStore = MagicMock
 
+    studio_store_mod = _stub("core.storage.studio_store")
+    studio_store_mod.StudioStore = MagicMock
+
     _stub("core.models.note")
     _stub("core.models.chat_message")
+    so_mod = _stub("core.models.studio_output")
+    class _StudioOutputType:
+        @staticmethod
+        def values():
+            return ["summary", "faq", "briefing", "glossary", "action_items"]
+    so_mod.StudioOutputType = _StudioOutputType
 
 
 def _make_retriever(vs: RecordingVectorStore):
