@@ -66,3 +66,24 @@ class VectorStoreAdapter:
             kwargs["where"] = where
         results = self.collection.query(**kwargs)
         return results
+
+    def get_by_ids(self, ids: list[str]) -> dict:
+        """
+        Fetch documents and metadata by exact Chroma IDs.
+
+        Used by RetrieverEngine._graph_expand() to retrieve real chunk content
+        from the knowledge-graph reverse-index.  Returns a dict with keys
+        ``documents`` (list[str]) and ``metadatas`` (list[dict]).
+
+        Missing IDs are silently omitted by Chroma; callers must handle an
+        empty result gracefully.
+
+        C1 compliant — local Chroma call only, no external network access.
+        """
+        if not ids:
+            return {"documents": [], "metadatas": []}
+        result = self.collection.get(ids=ids, include=["documents", "metadatas"])
+        return {
+            "documents": result.get("documents") or [],
+            "metadatas": result.get("metadatas") or [],
+        }
