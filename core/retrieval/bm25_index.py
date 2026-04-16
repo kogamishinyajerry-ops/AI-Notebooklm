@@ -154,6 +154,7 @@ class BM25Index:
         query: str,
         top_k: int = 10,
         extra_tokens: Optional[List[str]] = None,
+        source_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Score all documents and return the top-k by BM25 score.
@@ -166,6 +167,9 @@ class BM25Index:
             Maximum number of results to return.
         extra_tokens:
             Additional tokens to include (e.g., from query expansion).
+        source_ids:
+            Optional source-id allowlist. When provided, only documents whose
+            metadata carries a matching ``source_id`` are eligible for return.
 
         Returns
         -------
@@ -173,12 +177,15 @@ class BM25Index:
         """
         if self._bm25 is None or not self._corpus:
             return []
+        if source_ids is not None and not source_ids:
+            return []
 
         tokens = _tokenize(query)
         if extra_tokens:
             tokens = list(set(tokens) | set(extra_tokens))
 
         scores = self._bm25.get_scores(tokens)
+        allowed_sources = set(source_ids) if source_ids is not None else None
 
         # Sort by score descending
         ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
@@ -187,6 +194,8 @@ class BM25Index:
             if score <= 0:
                 break
             text, meta = self._corpus[idx]
+            if allowed_sources is not None and meta.get("source_id") not in allowed_sources:
+                continue
             results.append({"text": text, "metadata": meta, "bm25_score": float(score)})
         return results
 

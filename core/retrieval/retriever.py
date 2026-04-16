@@ -128,14 +128,35 @@ class RetrieverEngine:
         # 5. BM25 retrieval
         bm25_chunks: List[Dict[str, Any]] = []
         if hybrid and self.bm25_index.size > 0:
-            bm25_chunks = self.bm25_index.query(
-                query, top_k=top_k, extra_tokens=extra_tokens or None
-            )
+            try:
+                bm25_chunks = self.bm25_index.query(
+                    query,
+                    top_k=top_k,
+                    extra_tokens=extra_tokens or None,
+                    source_ids=source_ids,
+                )
+            except TypeError:
+                bm25_chunks = self.bm25_index.query(
+                    query,
+                    top_k=top_k,
+                    extra_tokens=extra_tokens or None,
+                )
+                if source_ids:
+                    allowed_sources = set(source_ids)
+                    bm25_chunks = [
+                        chunk
+                        for chunk in bm25_chunks
+                        if chunk.get("metadata", {}).get("source_id") in allowed_sources
+                    ]
 
         # 6. Graph expansion (Gap-A: third retrieval signal)
         graph_chunks: List[Dict[str, Any]] = []
         if expand_graph and notebook_id and self.graph_store and self.graph_extractor:
-            graph_chunks = self._graph_expand(query, notebook_id)
+            graph_chunks = self._graph_expand(
+                query,
+                notebook_id,
+                source_ids=source_ids,
+            )
 
         if not vector_chunks and not bm25_chunks and not graph_chunks:
             return []
@@ -184,6 +205,7 @@ class RetrieverEngine:
         self,
         query: str,
         notebook_id: str,
+        source_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Gap-A: Use identified query entities to look up associated chunk_ids
@@ -231,12 +253,19 @@ class RetrieverEngine:
         except Exception:
             return []
 
+        allowed_sources = set(source_ids) if source_ids is not None else None
         chunks: List[Dict[str, Any]] = []
         docs = results.get("documents") or []
         metas = results.get("metadatas") or []
         for doc, meta in zip(docs, metas):
+            metadata = meta or {}
+            if (
+                allowed_sources is not None
+                and metadata.get("source_id") not in allowed_sources
+            ):
+                continue
             if doc:
-                chunks.append({"text": doc, "metadata": meta or {}})
+                chunks.append({"text": doc, "metadata": metadata})
         return chunks
 
     def _rrf_fuse_three_way(

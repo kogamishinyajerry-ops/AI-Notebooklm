@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
+from fastapi import Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -8,6 +9,9 @@ import shutil
 import os
 import sys
 import requests
+import logging
+import time
+import uuid
 
 # Ensure root is in path for local service imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -34,8 +38,11 @@ from core.models.studio_output import StudioOutputType
 from core.governance.prompts import STUDIO_PROMPTS
 from core.storage.graph_store import GraphStore
 from core.knowledge.graph_extractor import GraphExtractor
+from core.security.auth import AuthPrincipal, auth_is_enabled, get_current_principal
+from core.observability.logging_utils import emit_json_log
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
+logger = logging.getLogger("comac.api")
 
 # Initialize shared services
 ingestion_service = IngestionService()
@@ -66,6 +73,42 @@ def recover_ingestion_transactions():
         notebook = notebook_store.get(space_id)
         if notebook is not None:
             notebook_store.update(space_id, source_count=len(source_registry.list_by_notebook(space_id)))
+
+
+@app.middleware("http")
+async def add_request_observability(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    started_at = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        emit_json_log(
+            logger,
+            "http.request",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            status_code=500,
+            duration_ms=duration_ms,
+            error=exc.__class__.__name__,
+        )
+        raise
+
+    response.headers["X-Request-ID"] = request_id
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    emit_json_log(
+        logger,
+        "http.request",
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+    )
+    return response
 
 # Mount static files
 static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
@@ -103,6 +146,26 @@ class ChatResponse(BaseModel):
 class NotebookCreateRequest(BaseModel):
     name: str
 
+
+def _principal_owner_id(principal: Optional[AuthPrincipal]) -> Optional[str]:
+    return principal.principal_id if principal else None
+
+
+def _require_notebook_access(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal],
+):
+    notebook = notebook_store.get(notebook_id)
+    if notebook is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    if auth_is_enabled():
+        owner_id = getattr(notebook, "owner_id", None)
+        if owner_id != _principal_owner_id(principal):
+            raise HTTPException(status_code=403, detail="Notebook access denied")
+
+    return notebook
+
 # --- Notes models ---
 class NoteCreateRequest(BaseModel):
     content: str
@@ -127,37 +190,59 @@ def api_health_check():
     }
 
 @app.post("/api/v1/spaces")
-def create_space(name: str):
+def create_space(
+    name: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Legacy alias for creating a notebook-backed knowledge space."""
     try:
-        notebook = notebook_store.create(name)
+        notebook = notebook_store.create(name, owner_id=_principal_owner_id(principal))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"space_id": notebook.id, "name": notebook.name}
 
 @app.post("/api/v1/notebooks", status_code=201)
-def create_notebook(request: NotebookCreateRequest):
+def create_notebook(
+    request: NotebookCreateRequest,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     try:
-        notebook = notebook_store.create(request.name)
+        notebook = notebook_store.create(
+            request.name,
+            owner_id=_principal_owner_id(principal),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return notebook.to_dict()
 
 @app.get("/api/v1/notebooks")
-def list_notebooks():
-    return [notebook.to_dict() for notebook in notebook_store.list_all()]
+def list_notebooks(
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
+    notebooks = notebook_store.list_all()
+    if auth_is_enabled():
+        owner_id = _principal_owner_id(principal)
+        notebooks = [
+            notebook
+            for notebook in notebooks
+            if getattr(notebook, "owner_id", None) == owner_id
+        ]
+    return [notebook.to_dict() for notebook in notebooks]
 
 @app.get("/api/v1/notebooks/{notebook_id}")
-def get_notebook(notebook_id: str):
-    notebook = notebook_store.get(notebook_id)
-    if notebook is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+def get_notebook(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
+    notebook = _require_notebook_access(notebook_id, principal)
     return notebook.to_dict()
 
 @app.delete("/api/v1/notebooks/{notebook_id}", status_code=204)
-def delete_notebook(notebook_id: str):
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+def delete_notebook(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
+    _require_notebook_access(notebook_id, principal)
 
     for source in source_registry.list_by_notebook(notebook_id):
         ingestion_service.vector_store.delete(where={"source_id": source.id})
@@ -166,24 +251,32 @@ def delete_notebook(notebook_id: str):
         raise HTTPException(status_code=404, detail="Notebook not found")
 
 @app.get("/api/v1/notebooks/{notebook_id}/sources")
-def list_sources(notebook_id: str):
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+def list_sources(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
+    _require_notebook_access(notebook_id, principal)
     return [source.to_dict() for source in source_registry.list_by_notebook(notebook_id)]
 
 @app.get("/api/v1/notebooks/{notebook_id}/sources/{source_id}")
-def get_source(notebook_id: str, source_id: str):
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+def get_source(
+    notebook_id: str,
+    source_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
+    _require_notebook_access(notebook_id, principal)
     source = source_registry.get(notebook_id, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
     return source.to_dict()
 
 @app.delete("/api/v1/notebooks/{notebook_id}/sources/{source_id}", status_code=204)
-def delete_source(notebook_id: str, source_id: str):
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+def delete_source(
+    notebook_id: str,
+    source_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
+    _require_notebook_access(notebook_id, principal)
     source = source_registry.get(notebook_id, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -227,7 +320,11 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
         ) from exc
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(
+    request: ChatRequest,
+    http_request: Request,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """
     Core Q&A endpoint.
     Triggers RAG retrieval scoped to the notebook's sources, LLM generation,
@@ -244,6 +341,10 @@ async def chat_endpoint(request: ChatRequest):
         notebook = notebook_store.get(notebook_id)
         if notebook is None:
             raise HTTPException(status_code=400, detail=f"Notebook '{notebook_id}' not found")
+        if auth_is_enabled():
+            owner_id = getattr(notebook, "owner_id", None)
+            if owner_id != _principal_owner_id(principal):
+                raise HTTPException(status_code=403, detail="Notebook access denied")
         sources = source_registry.list_by_notebook(notebook_id)
         source_ids = [s.id for s in sources] if sources else []
         if not source_ids:
@@ -254,6 +355,7 @@ async def chat_endpoint(request: ChatRequest):
             )
 
     # 2. Retrieve — scoped to this notebook's source_ids when available
+    retrieval_started_at = time.perf_counter()
     contexts = retriever_engine.retrieve(
         request.query,
         top_k=5,
@@ -261,8 +363,21 @@ async def chat_endpoint(request: ChatRequest):
         source_ids=source_ids if source_ids else None,
         notebook_id=notebook_id,
     )
+    retrieval_duration_ms = round((time.perf_counter() - retrieval_started_at) * 1000, 2)
 
     if not contexts:
+        emit_json_log(
+            logger,
+            "retrieval.summary",
+            request_id=getattr(http_request.state, "request_id", None),
+            notebook_id=notebook_id,
+            source_scope_size=len(source_ids or []),
+            contexts_returned=0,
+            citations_returned=0,
+            retrieval_duration_ms=retrieval_duration_ms,
+            is_fully_verified=False,
+            llm_available=None,
+        )
         return ChatResponse(
             answer="未在当前知识库中检索到相关内容，请上传相关文档后再试。",
             is_fully_verified=False,
@@ -277,6 +392,18 @@ async def chat_endpoint(request: ChatRequest):
     try:
         raw_response = invoke_local_llm(system_prompt, request.query)
     except LLMUnavailableError as exc:
+        emit_json_log(
+            logger,
+            "retrieval.summary",
+            request_id=getattr(http_request.state, "request_id", None),
+            notebook_id=notebook_id,
+            source_scope_size=len(source_ids or []),
+            contexts_returned=len(contexts),
+            citations_returned=0,
+            retrieval_duration_ms=retrieval_duration_ms,
+            is_fully_verified=False,
+            llm_available=False,
+        )
         raise HTTPException(
             status_code=503,
             detail=f"LLM service unavailable. Please ensure vLLM is running. ({exc})",
@@ -311,6 +438,19 @@ async def chat_endpoint(request: ChatRequest):
         except Exception:
             pass  # history persistence must never break the response
 
+    emit_json_log(
+        logger,
+        "retrieval.summary",
+        request_id=getattr(http_request.state, "request_id", None),
+        notebook_id=notebook_id,
+        source_scope_size=len(source_ids or []),
+        contexts_returned=len(contexts),
+        citations_returned=len(citations_data),
+        retrieval_duration_ms=retrieval_duration_ms,
+        is_fully_verified=is_valid,
+        llm_available=True,
+    )
+
     return ChatResponse(
         answer=safe_response,
         is_fully_verified=is_valid,
@@ -318,11 +458,13 @@ async def chat_endpoint(request: ChatRequest):
     )
 
 @app.post("/api/v1/notebooks/{notebook_id}/sources/upload")
-async def upload_source(notebook_id: str, file: UploadFile = File(...)):
+async def upload_source(
+    notebook_id: str,
+    file: UploadFile = File(...),
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Uploads and triggers ingestion for a document."""
-    notebook = notebook_store.get(notebook_id)
-    if notebook is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
 
     upload_dir = source_registry.spaces_dir / notebook_id / "docs"
     os.makedirs(upload_dir, exist_ok=True)
@@ -378,21 +520,27 @@ async def upload_source(notebook_id: str, file: UploadFile = File(...)):
     }
 
 @app.post("/api/v1/documents/upload")
-async def upload_document(space_id: str, file: UploadFile = File(...)):
+async def upload_document(
+    space_id: str,
+    file: UploadFile = File(...),
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Legacy upload route, backed by notebook sources."""
-    if notebook_store.get(space_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
-    return await upload_source(space_id, file)
+    _require_notebook_access(space_id, principal)
+    return await upload_source(space_id, file, principal)
 
 
 # ---------------------------------------------------------------------------
 # S-19: PDF Source Viewer endpoints
 # ---------------------------------------------------------------------------
 
-def _resolve_source_for_file(notebook_id: str, source_id: str):
+def _resolve_source_for_file(
+    notebook_id: str,
+    source_id: str,
+    principal: Optional[AuthPrincipal],
+):
     """Helper: resolve and validate notebook + source, returning the Source object."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     source = source_registry.get(notebook_id, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -419,12 +567,16 @@ def _safe_source_path(source, spaces_dir: Path) -> Path:
 
 
 @app.get("/api/v1/notebooks/{notebook_id}/sources/{source_id}/file")
-def serve_source_file(notebook_id: str, source_id: str):
+def serve_source_file(
+    notebook_id: str,
+    source_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """
     Stream the raw PDF file for a source.
     Used by the frontend PDF viewer to load the document.
     """
-    source = _resolve_source_for_file(notebook_id, source_id)
+    source = _resolve_source_for_file(notebook_id, source_id, principal)
     file_path = _safe_source_path(source, source_registry.spaces_dir)
     return FileResponse(
         path=str(file_path),
@@ -434,7 +586,12 @@ def serve_source_file(notebook_id: str, source_id: str):
 
 
 @app.get("/api/v1/notebooks/{notebook_id}/sources/{source_id}/pages/{page_number}")
-def render_source_page(notebook_id: str, source_id: str, page_number: int):
+def render_source_page(
+    notebook_id: str,
+    source_id: str,
+    page_number: int,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """
     Render a single PDF page as a PNG image at 144 DPI (2× scale).
     page_number is 1-indexed.
@@ -442,7 +599,7 @@ def render_source_page(notebook_id: str, source_id: str, page_number: int):
     """
     import fitz  # PyMuPDF — local, C1 compliant
 
-    source = _resolve_source_for_file(notebook_id, source_id)
+    source = _resolve_source_for_file(notebook_id, source_id, principal)
     file_path = _safe_source_path(source, source_registry.spaces_dir)
 
     # Validate page range
@@ -474,19 +631,24 @@ def render_source_page(notebook_id: str, source_id: str, page_number: int):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/notebooks/{notebook_id}/history")
-def get_chat_history(notebook_id: str, limit: int = 100):
+def get_chat_history(
+    notebook_id: str,
+    limit: int = 100,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Return the most recent chat messages for a notebook."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     messages = chat_history_store.list_by_notebook(notebook_id, limit=limit)
     return [m.to_dict() for m in messages]
 
 
 @app.delete("/api/v1/notebooks/{notebook_id}/history")
-def clear_chat_history(notebook_id: str):
+def clear_chat_history(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Clear all chat history for a notebook. Returns count of deleted messages."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     deleted = chat_history_store.clear(notebook_id)
     return {"deleted": deleted}
 
@@ -496,18 +658,23 @@ def clear_chat_history(notebook_id: str):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/notebooks/{notebook_id}/notes")
-def list_notes(notebook_id: str):
+def list_notes(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """List all saved notes for a notebook."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     return [n.to_dict() for n in note_store.list_by_notebook(notebook_id)]
 
 
 @app.post("/api/v1/notebooks/{notebook_id}/notes", status_code=201)
-def create_note(notebook_id: str, request: NoteCreateRequest):
+def create_note(
+    notebook_id: str,
+    request: NoteCreateRequest,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Save an AI response as a note."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     note = note_store.create(
         notebook_id=notebook_id,
         content=request.content,
@@ -518,10 +685,13 @@ def create_note(notebook_id: str, request: NoteCreateRequest):
 
 
 @app.get("/api/v1/notebooks/{notebook_id}/notes/{note_id}")
-def get_note(notebook_id: str, note_id: str):
+def get_note(
+    notebook_id: str,
+    note_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Retrieve a single note."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     note = note_store.get(notebook_id, note_id)
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -529,10 +699,14 @@ def get_note(notebook_id: str, note_id: str):
 
 
 @app.patch("/api/v1/notebooks/{notebook_id}/notes/{note_id}")
-def update_note(notebook_id: str, note_id: str, request: NotePatchRequest):
+def update_note(
+    notebook_id: str,
+    note_id: str,
+    request: NotePatchRequest,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Update a note's title and/or content."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     try:
         note = note_store.update(
             notebook_id=notebook_id,
@@ -546,10 +720,13 @@ def update_note(notebook_id: str, note_id: str, request: NotePatchRequest):
 
 
 @app.delete("/api/v1/notebooks/{notebook_id}/notes/{note_id}", status_code=204)
-def delete_note(notebook_id: str, note_id: str):
+def delete_note(
+    notebook_id: str,
+    note_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Delete a note."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     if not note_store.delete(notebook_id, note_id):
         raise HTTPException(status_code=404, detail="Note not found")
 
@@ -564,11 +741,13 @@ class StudioGenerateRequest(BaseModel):
 
 
 @app.post("/api/v1/notebooks/{notebook_id}/studio/generate", status_code=201)
-async def generate_studio_output(notebook_id: str, request: StudioGenerateRequest):
+async def generate_studio_output(
+    notebook_id: str,
+    request: StudioGenerateRequest,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Generate a structured text output from notebook sources using the local LLM."""
-    notebook = notebook_store.get(notebook_id)
-    if notebook is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
 
     # Validate output type
     if request.output_type not in StudioOutputType.values():
@@ -646,18 +825,23 @@ async def generate_studio_output(notebook_id: str, request: StudioGenerateReques
 
 
 @app.get("/api/v1/notebooks/{notebook_id}/studio")
-def list_studio_outputs(notebook_id: str):
+def list_studio_outputs(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """List all generated studio outputs for a notebook."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     return [o.to_dict() for o in studio_store.list_by_notebook(notebook_id)]
 
 
 @app.get("/api/v1/notebooks/{notebook_id}/studio/{output_id}")
-def get_studio_output(notebook_id: str, output_id: str):
+def get_studio_output(
+    notebook_id: str,
+    output_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Get a specific studio output."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     output = studio_store.get(notebook_id, output_id)
     if output is None:
         raise HTTPException(status_code=404, detail="Studio output not found")
@@ -665,19 +849,25 @@ def get_studio_output(notebook_id: str, output_id: str):
 
 
 @app.delete("/api/v1/notebooks/{notebook_id}/studio/{output_id}", status_code=204)
-def delete_studio_output(notebook_id: str, output_id: str):
+def delete_studio_output(
+    notebook_id: str,
+    output_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Delete a studio output."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     if not studio_store.delete(notebook_id, output_id):
         raise HTTPException(status_code=404, detail="Studio output not found")
 
 
 @app.post("/api/v1/notebooks/{notebook_id}/studio/{output_id}/save-as-note", status_code=201)
-def save_studio_as_note(notebook_id: str, output_id: str):
+def save_studio_as_note(
+    notebook_id: str,
+    output_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """Save a studio output as a Note (persisted in NoteStore)."""
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
     output = studio_store.get(notebook_id, output_id)
     if output is None:
         raise HTTPException(status_code=404, detail="Studio output not found")
@@ -695,15 +885,17 @@ def save_studio_as_note(notebook_id: str, output_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/v1/notebooks/{notebook_id}/graph/generate", status_code=201)
-def generate_graph(notebook_id: str):
+def generate_graph(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """
     Extract entities and relations from all READY sources in a notebook,
     build a knowledge graph + mind-map tree, and persist it.
 
     Returns the full graph JSON.
     """
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
 
     sources = [
         s for s in source_registry.list_by_notebook(notebook_id)
@@ -729,13 +921,15 @@ def generate_graph(notebook_id: str):
 
 
 @app.get("/api/v1/notebooks/{notebook_id}/graph")
-def get_graph(notebook_id: str):
+def get_graph(
+    notebook_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
     """
     Return the previously generated knowledge graph for a notebook.
     Returns 404 if graph has not been generated yet.
     """
-    if notebook_store.get(notebook_id) is None:
-        raise HTTPException(status_code=404, detail="Notebook not found")
+    _require_notebook_access(notebook_id, principal)
 
     graph = graph_store.load(notebook_id)
     if graph is None:

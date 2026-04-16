@@ -109,6 +109,20 @@ class RecordingVectorStore:
 
 _stubs_installed = False
 
+_MODULES_TO_EVICT_AFTER_TEST = (
+    "apps.api.main",
+    "core.retrieval.retriever",
+    "core.retrieval.bm25_index",
+    "core.retrieval.query_expander",
+)
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_stubbed_modules():
+    yield
+    for mod in _MODULES_TO_EVICT_AFTER_TEST:
+        sys.modules.pop(mod, None)
+
 
 def _install_stubs():
     global _stubs_installed

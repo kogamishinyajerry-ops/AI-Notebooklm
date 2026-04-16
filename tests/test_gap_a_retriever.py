@@ -243,8 +243,8 @@ class TestGraphExpand:
 
     def test_includes_neighbor_chunks_when_graph_has_adjacent_entities(self):
         corpus = {
-            "graph-chunk-1": ("CFD analysis text", {"source": "doc.pdf"}),
-            "graph-neighbor-1": ("Boundary layer transition note", {"source": "doc.pdf"}),
+            "graph-chunk-1": ("CFD analysis text", {"source": "doc.pdf", "source_id": "src-1"}),
+            "graph-neighbor-1": ("Boundary layer transition note", {"source": "doc.pdf", "source_id": "src-1"}),
         }
         r = _make_retriever(corpus=corpus)
         r.graph_store = _NeighborGraphStore()
@@ -254,6 +254,20 @@ class TestGraphExpand:
         texts = {c["text"] for c in chunks}
         assert "CFD analysis text" in texts
         assert "Boundary layer transition note" in texts
+
+    def test_filters_graph_chunks_by_source_ids(self):
+        corpus = {
+            "graph-chunk-1": ("CFD analysis text", {"source": "doc-a.pdf", "source_id": "src-1"}),
+            "graph-neighbor-1": ("Boundary layer transition note", {"source": "doc-b.pdf", "source_id": "src-2"}),
+        }
+        r = _make_retriever(corpus=corpus)
+        r.graph_store = _NeighborGraphStore()
+        r.graph_extractor = _FakeGraphExtractor()
+
+        chunks = r._graph_expand("CFD analysis", "nb-1", source_ids=["src-1"])
+
+        assert [chunk["metadata"]["source_id"] for chunk in chunks] == ["src-1"]
+        assert [chunk["text"] for chunk in chunks] == ["CFD analysis text"]
 
 
 # ===========================================================================
@@ -385,8 +399,8 @@ class TestRetrieveWithGraphExpansion:
 
     def test_retrieve_returns_graph_results_when_vector_search_is_empty(self):
         corpus = {
-            "graph-chunk-1": ("CFD graph-only content", {"source": "doc.pdf"}),
-            "graph-neighbor-1": ("Boundary layer graph-only content", {"source": "doc.pdf"}),
+            "graph-chunk-1": ("CFD graph-only content", {"source": "doc.pdf", "source_id": "src-1"}),
+            "graph-neighbor-1": ("Boundary layer graph-only content", {"source": "doc.pdf", "source_id": "src-1"}),
         }
         r = _make_retriever(corpus=corpus)
         r.vector_store = _EmptyVectorStore(corpus)
@@ -405,6 +419,29 @@ class TestRetrieveWithGraphExpansion:
         texts = {c["text"] for c in results}
         assert "CFD graph-only content" in texts
         assert "Boundary layer graph-only content" in texts
+
+    def test_retrieve_graph_expansion_respects_source_ids(self):
+        corpus = {
+            "graph-chunk-1": ("CFD graph-only content", {"source": "doc-a.pdf", "source_id": "src-1"}),
+            "graph-neighbor-1": ("Boundary layer graph-only content", {"source": "doc-b.pdf", "source_id": "src-2"}),
+        }
+        r = _make_retriever(corpus=corpus)
+        r.vector_store = _EmptyVectorStore(corpus)
+        r.graph_store = _NeighborGraphStore()
+        r.graph_extractor = _FakeGraphExtractor()
+
+        results = r.retrieve(
+            "CFD analysis",
+            top_k=5,
+            final_k=3,
+            expand_graph=True,
+            mmr_threshold=1.0,
+            source_ids=["src-1"],
+            notebook_id="nb-1",
+        )
+
+        assert [chunk["metadata"]["source_id"] for chunk in results] == ["src-1"]
+        assert [chunk["text"] for chunk in results] == ["CFD graph-only content"]
 
     def test_retrieve_returns_bm25_results_when_vector_search_is_empty(self):
         class _BM25OnlyIndex(_FakeBM25Index):

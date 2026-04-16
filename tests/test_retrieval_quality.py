@@ -223,6 +223,21 @@ class TestBM25Index:
         scores_without = idx._bm25.get_scores(_tokenize("失速"))
         assert scores_without[0] == 0
 
+    def test_bm25_source_ids_filter_excludes_other_notebooks(self):
+        from core.retrieval.bm25_index import BM25Index  # noqa: PLC0415
+
+        corpus = [
+            ("stall analysis for notebook A", {"source_id": "src-a"}),
+            ("stall analysis for notebook B", {"source_id": "src-b"}),
+        ]
+        idx = BM25Index()
+        idx.build(corpus)
+
+        results = idx.query("stall analysis", source_ids=["src-a"], top_k=5)
+
+        assert len(results) == 1
+        assert results[0]["metadata"]["source_id"] == "src-a"
+
 
 # ===========================================================================
 # F2 — Query expansion tests
@@ -379,6 +394,29 @@ class TestHybridRetrieve:
 
         returned_ids = {c["metadata"]["source_id"] for c in results}
         assert "src-2" not in returned_ids
+
+    def test_retrieve_bm25_only_respects_source_ids(self):
+        """Even when vector search is empty, BM25 candidates must stay notebook-scoped."""
+
+        class _EmptyVS:
+            last_where = None
+
+            def query(self, query_embeddings, top_k=5, where=None):
+                self.last_where = where
+                return {"documents": [[]], "metadatas": [[]]}
+
+        corpus = [
+            ("stall content for src-1", {"source": "doc1.pdf", "page": "1", "source_id": "src-1"}),
+            ("stall content for src-2", {"source": "doc2.pdf", "page": "1", "source_id": "src-2"}),
+        ]
+        r = self._build_retriever_with_bm25(corpus)
+        r.vector_store = _EmptyVS()
+
+        results = r.retrieve("stall content", source_ids=["src-1"], hybrid=True, top_k=5, final_k=5)
+
+        assert results
+        returned_ids = {c["metadata"]["source_id"] for c in results}
+        assert returned_ids == {"src-1"}
 
     def test_retrieve_no_hybrid_still_works(self):
         """hybrid=False should still return results via pure vector path."""

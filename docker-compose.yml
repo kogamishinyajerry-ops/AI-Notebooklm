@@ -15,7 +15,19 @@ services:
       - ENVIRONMENT=production
       - HF_HUB_OFFLINE=1
       - TRANSFORMERS_OFFLINE=1
+      - EMBEDDING_LOCAL_FILES_ONLY=1
+      - RERANKER_LOCAL_FILES_ONLY=1
+      - HF_HOME=/opt/hf-cache
+      - SENTENCE_TRANSFORMERS_HOME=/opt/hf-cache
+      - EMBEDDING_MODEL_NAME=BAAI/bge-large-zh-v1.5
+      - RERANKER_MODEL_NAME=BAAI/bge-reranker-base
       # In a real environment, VLLM_URL would point to the local LLM host
       - VLLM_URL=http://host.docker.internal:8000/v1
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -28,7 +28,7 @@ class NotebookStore:
     def _write(self, notebooks: list[Notebook]) -> None:
         write_json_atomic(self.notebooks_path, [notebook.to_dict() for notebook in notebooks])
 
-    def create(self, name: str) -> Notebook:
+    def create(self, name: str, owner_id: str | None = None) -> Notebook:
         trimmed_name = name.strip()
         if not trimmed_name:
             raise ValueError("Notebook name is required")
@@ -40,6 +40,7 @@ class NotebookStore:
             created_at=now,
             updated_at=now,
             source_count=0,
+            owner_id=owner_id,
         )
         notebooks = self._read()
         notebooks.append(notebook)
