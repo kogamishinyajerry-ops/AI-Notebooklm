@@ -392,6 +392,129 @@ body {
 
 .note-actions { display: flex; gap: 0.3rem; margin-top: 0.25rem; }
 
+/* ─── Tab switcher (Notes | Studio) ──────────────────── */
+.pane-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.pane-tab {
+    flex: 1;
+    padding: 0.5rem 0.25rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.pane-tab:hover   { color: var(--text-primary); }
+.pane-tab.active  { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
+
+.pane-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; min-height: 0; }
+.pane-panel.visible { display: flex; }
+
+/* ─── Studio panel ────────────────────────────────────── */
+.studio-controls {
+    padding: 0.6rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+
+.studio-type-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.3rem;
+}
+
+.studio-type-btn {
+    background: var(--bg-accent);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 0.3rem 0.25rem;
+    border-radius: 0.3rem;
+    font-size: 0.68rem;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.studio-type-btn:hover  { border-color: var(--accent-indigo); color: var(--text-primary); }
+.studio-type-btn.active { border-color: var(--accent-indigo); background: rgba(99,102,241,0.15); color: var(--text-primary); }
+
+.generate-btn {
+    display: block;
+    width: 100%;
+    padding: 0.4rem;
+    background: var(--accent-indigo);
+    border: none;
+    border-radius: 0.35rem;
+    color: white;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+.generate-btn:hover    { opacity: 0.85; }
+.generate-btn:disabled { opacity: 0.45; cursor: default; }
+
+.studio-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.studio-item {
+    background: var(--bg-accent);
+    border-radius: 0.4rem;
+    padding: 0.55rem 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    border: 1px solid transparent;
+    transition: border-color 0.15s;
+}
+.studio-item:hover { border-color: var(--border); }
+
+.studio-item-type {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent-indigo);
+    font-weight: 600;
+}
+
+.studio-item-title {
+    font-size: 0.78rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.studio-item-meta { font-size: 0.68rem; color: var(--text-secondary); }
+.studio-item-actions { display: flex; gap: 0.3rem; margin-top: 0.25rem; }
+
+.studio-generating {
+    font-size: 0.75rem;
+    color: var(--accent-indigo);
+    padding: 0.4rem 0;
+    text-align: center;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity:0.6; } 50% { opacity:1; } }
+
 /* ─── Icon button ─────────────────────────────────────── */
 .icon-btn {
     background: var(--bg-accent);
