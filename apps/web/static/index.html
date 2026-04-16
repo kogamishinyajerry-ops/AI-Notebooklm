@@ -5,56 +5,97 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>COMAC Intelligent NotebookLM</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <!-- PDF.js via cdnjs — no external runtime calls needed after load (C1) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
     <div class="app-container">
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="logo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 AI NotebookLM
             </div>
-            <div class="source-list" id="source-list">
-                <p style="color: var(--text-secondary); font-size: 0.75rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em;">Your Sources</p>
-                <div class="source-item">mock_source.pdf</div>
+
+            <!-- Notebook selector -->
+            <div class="sidebar-section">
+                <p class="sidebar-label">Notebook</p>
+                <div class="notebook-selector-row">
+                    <select id="notebook-select" class="notebook-select">
+                        <option value="">— select —</option>
+                    </select>
+                    <button id="new-notebook-btn" class="icon-btn" title="New notebook">＋</button>
+                </div>
+            </div>
+
+            <!-- Source list -->
+            <div class="sidebar-section source-section">
+                <p class="sidebar-label">Sources</p>
+                <div id="source-list" class="source-list">
+                    <p class="empty-hint">No sources yet</p>
+                </div>
+                <label id="upload-label" class="upload-btn">
+                    ＋ Upload PDF
+                    <input type="file" id="upload-input" accept="application/pdf" style="display:none">
+                </label>
             </div>
         </aside>
 
-        <!-- Main Content (Dual Pane) -->
+        <!-- Main Content -->
         <main class="main-content">
+
             <!-- Left: PDF Viewer -->
             <section class="pdf-pane">
-                <div style="padding: 1rem; border-bottom: 1px solid var(--border); font-weight: 600;">
-                    Document Preview
+                <div class="pdf-pane-header">
+                    <span id="pdf-title" class="pdf-title">Document Preview</span>
+                    <div class="page-nav">
+                        <button id="prev-page" class="nav-btn" disabled>&#8249;</button>
+                        <span id="page-indicator" class="page-indicator">— / —</span>
+                        <button id="next-page" class="nav-btn" disabled>&#8250;</button>
+                    </div>
                 </div>
                 <div class="pdf-viewport" id="pdf-viewport">
-                    <div class="pdf-page-mock" id="pdf-page">
-                        <div id="highlight" class="highlight-overlay"></div>
-                        <div style="padding: 40px; color: #ccc; font-family: serif;">
-                            <h2 style="color: black; margin-bottom: 20px;">COMAC 飞行控制律说明书 (Mock)</h2>
-                            <p style="color: #444; line-height: 1.6;">
-                                这部分是关于飞行控制律的描述。控制律的设计旨在保证飞机的稳定性和操纵性。
-                                系统通过多重传感器输入，计算最优的控制面偏置。
-                            </p>
-                        </div>
+                    <div class="pdf-placeholder" id="pdf-placeholder">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        <p>Select a source to preview</p>
+                    </div>
+                    <div class="canvas-wrapper" id="canvas-wrapper" style="display:none">
+                        <canvas id="pdf-canvas"></canvas>
+                        <div id="highlight-overlay" class="highlight-overlay"></div>
                     </div>
                 </div>
             </section>
 
-            <!-- Right: Chat Interface -->
+            <!-- Middle: Chat Interface -->
             <section class="chat-pane">
-                <div style="padding: 1rem; border-bottom: 1px solid var(--border); font-weight: 600;">
-                    AI Assistant
-                </div>
+                <div class="chat-pane-header">AI Assistant</div>
                 <div class="chat-history" id="chat-history">
                     <div class="message system">
-                        Hello. I'm your Intelligent Engineering Assistant. Upload documents to the left or ask questions based on existing knowledge.
+                        Hello. I'm your Intelligent Engineering Assistant. Select a notebook and upload documents, then ask questions.
                     </div>
                 </div>
                 <div class="chat-input-area">
-                    <input type="text" id="query-input" placeholder="Ask about your documents...">
+                    <div class="input-row">
+                        <input type="text" id="query-input" placeholder="Ask about your documents…" autocomplete="off">
+                        <button id="send-btn" class="send-btn">&#9654;</button>
+                    </div>
+                    <div class="chat-toolbar">
+                        <button id="clear-history-btn" class="toolbar-btn" title="Clear chat history">&#128465; Clear history</button>
+                    </div>
                 </div>
             </section>
+
+            <!-- Right: Notes Panel -->
+            <aside class="notes-pane" id="notes-pane">
+                <div class="notes-header">
+                    <span>&#128211; Notes</span>
+                    <button id="refresh-notes-btn" class="icon-btn" title="Refresh notes">&#8635;</button>
+                </div>
+                <div class="notes-list" id="notes-list">
+                    <p class="empty-hint">No saved notes</p>
+                </div>
+            </aside>
+
         </main>
     </div>
 
