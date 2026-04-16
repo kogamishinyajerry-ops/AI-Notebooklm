@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional
 from pathlib import Path
@@ -27,6 +27,8 @@ from core.governance.gateway import AntiHallucinationGateway
 from core.models.source import SourceStatus
 from core.storage.notebook_store import NotebookStore
 from core.storage.source_registry import SourceRegistry
+from core.storage.note_store import NoteStore
+from core.storage.chat_history_store import ChatHistoryStore
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
 
@@ -35,6 +37,8 @@ ingestion_service = IngestionService()
 retriever_engine = RetrieverEngine()
 notebook_store = NotebookStore()
 source_registry = SourceRegistry()
+note_store = NoteStore()
+chat_history_store = ChatHistoryStore()
 
 
 @app.on_event("startup")
@@ -72,6 +76,7 @@ class ChatRequest(BaseModel):
     notebook_id: Optional[str] = None
     space_id: Optional[str] = None
     history: Optional[List[dict]] = None
+    save_history: bool = True  # set False to skip chat history persistence
 
     @property
     def resolved_notebook_id(self) -> Optional[str]:
@@ -85,6 +90,16 @@ class ChatResponse(BaseModel):
 
 class NotebookCreateRequest(BaseModel):
     name: str
+
+# --- Notes models ---
+class NoteCreateRequest(BaseModel):
+    content: str
+    citations: Optional[List[dict]] = None
+    title: Optional[str] = None
+
+class NotePatchRequest(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
 
 # Routes
 @app.get("/health")
@@ -263,6 +278,20 @@ async def chat_endpoint(request: ChatRequest):
         for c in verified_citations
     ]
 
+    # 6. Persist chat history
+    if request.save_history and notebook_id:
+        try:
+            chat_history_store.append(notebook_id, "user", request.query)
+            chat_history_store.append(
+                notebook_id,
+                "assistant",
+                safe_response,
+                citations=[c.model_dump() for c in citations_data],
+                is_fully_verified=is_valid,
+            )
+        except Exception:
+            pass  # history persistence must never break the response
+
     return ChatResponse(
         answer=safe_response,
         is_fully_verified=is_valid,
@@ -335,3 +364,172 @@ async def upload_document(space_id: str, file: UploadFile = File(...)):
     if notebook_store.get(space_id) is None:
         raise HTTPException(status_code=404, detail="Notebook not found")
     return await upload_source(space_id, file)
+
+
+# ---------------------------------------------------------------------------
+# S-19: PDF Source Viewer endpoints
+# ---------------------------------------------------------------------------
+
+def _resolve_source_for_file(notebook_id: str, source_id: str):
+    """Helper: resolve and validate notebook + source, returning the Source object."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    source = source_registry.get(notebook_id, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
+
+
+def _safe_source_path(source, spaces_dir: Path) -> Path:
+    """
+    Return resolved file path, raising 403 if it escapes the spaces directory.
+    Prevents path traversal attacks.
+    """
+    file_path = Path(source.file_path).resolve()
+    spaces_resolved = spaces_dir.resolve()
+    try:
+        file_path.relative_to(spaces_resolved)
+    except ValueError:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: source file is outside the permitted storage area.",
+        )
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Source file not found on disk")
+    return file_path
+
+
+@app.get("/api/v1/notebooks/{notebook_id}/sources/{source_id}/file")
+def serve_source_file(notebook_id: str, source_id: str):
+    """
+    Stream the raw PDF file for a source.
+    Used by the frontend PDF viewer to load the document.
+    """
+    source = _resolve_source_for_file(notebook_id, source_id)
+    file_path = _safe_source_path(source, source_registry.spaces_dir)
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/pdf",
+        filename=source.filename,
+    )
+
+
+@app.get("/api/v1/notebooks/{notebook_id}/sources/{source_id}/pages/{page_number}")
+def render_source_page(notebook_id: str, source_id: str, page_number: int):
+    """
+    Render a single PDF page as a PNG image at 144 DPI (2× scale).
+    page_number is 1-indexed.
+    Used by the frontend canvas renderer for citation evidence display.
+    """
+    import fitz  # PyMuPDF — local, C1 compliant
+
+    source = _resolve_source_for_file(notebook_id, source_id)
+    file_path = _safe_source_path(source, source_registry.spaces_dir)
+
+    # Validate page range
+    if source.page_count is not None:
+        if page_number < 1 or page_number > source.page_count:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Page {page_number} out of range (1–{source.page_count})",
+            )
+
+    try:
+        doc = fitz.open(str(file_path))
+        # fitz uses 0-indexed pages
+        page = doc[page_number - 1]
+        mat = fitz.Matrix(2.0, 2.0)  # 144 DPI
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        png_bytes = pix.tobytes("png")
+        doc.close()
+    except IndexError:
+        raise HTTPException(status_code=422, detail=f"Page {page_number} not found in document")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Page render failed: {exc}")
+
+    return Response(content=png_bytes, media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# S-20: Chat History endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/notebooks/{notebook_id}/history")
+def get_chat_history(notebook_id: str, limit: int = 100):
+    """Return the most recent chat messages for a notebook."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    messages = chat_history_store.list_by_notebook(notebook_id, limit=limit)
+    return [m.to_dict() for m in messages]
+
+
+@app.delete("/api/v1/notebooks/{notebook_id}/history")
+def clear_chat_history(notebook_id: str):
+    """Clear all chat history for a notebook. Returns count of deleted messages."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    deleted = chat_history_store.clear(notebook_id)
+    return {"deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# S-20: Notes CRUD endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/notebooks/{notebook_id}/notes")
+def list_notes(notebook_id: str):
+    """List all saved notes for a notebook."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return [n.to_dict() for n in note_store.list_by_notebook(notebook_id)]
+
+
+@app.post("/api/v1/notebooks/{notebook_id}/notes", status_code=201)
+def create_note(notebook_id: str, request: NoteCreateRequest):
+    """Save an AI response as a note."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    note = note_store.create(
+        notebook_id=notebook_id,
+        content=request.content,
+        citations=request.citations or [],
+        title=request.title,
+    )
+    return note.to_dict()
+
+
+@app.get("/api/v1/notebooks/{notebook_id}/notes/{note_id}")
+def get_note(notebook_id: str, note_id: str):
+    """Retrieve a single note."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    note = note_store.get(notebook_id, note_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return note.to_dict()
+
+
+@app.patch("/api/v1/notebooks/{notebook_id}/notes/{note_id}")
+def update_note(notebook_id: str, note_id: str, request: NotePatchRequest):
+    """Update a note's title and/or content."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    try:
+        note = note_store.update(
+            notebook_id=notebook_id,
+            note_id=note_id,
+            title=request.title,
+            content=request.content,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return note.to_dict()
+
+
+@app.delete("/api/v1/notebooks/{notebook_id}/notes/{note_id}", status_code=204)
+def delete_note(notebook_id: str, note_id: str):
+    """Delete a note."""
+    if notebook_store.get(notebook_id) is None:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    if not note_store.delete(notebook_id, note_id):
+        raise HTTPException(status_code=404, detail="Note not found")
