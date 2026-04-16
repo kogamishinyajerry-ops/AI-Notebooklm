@@ -84,6 +84,37 @@ def test_probe_local_llm_reports_unreachable_service(monkeypatch):
     assert "connection refused" in result["error"]
 
 
+def test_probe_local_llm_detects_mismatched_service(monkeypatch):
+    monkeypatch.setenv("VLLM_URL", "http://127.0.0.1:8001/v1")
+
+    class _Response:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"{self.status_code} error")
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, timeout):
+        if url.endswith("/v1/models"):
+            return _Response(404, {"detail": "Not Found"})
+        if url.endswith("/health"):
+            return _Response(200, {"status": "healthy", "service": "gateway"})
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr("core.llm.vllm_client.requests.get", fake_get)
+
+    result = probe_local_llm()
+
+    assert result["reachable"] is False
+    assert result["status"] == "mismatched_service"
+    assert result["health_payload"] == {"status": "healthy", "service": "gateway"}
+
+
 def test_check_vllm_endpoint_script_returns_zero_when_reachable(monkeypatch):
     from scripts import check_vllm_endpoint  # noqa: PLC0415
 

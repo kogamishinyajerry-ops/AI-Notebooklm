@@ -29,6 +29,7 @@ class LLMConfigurationError(RuntimeError):
 @dataclass(frozen=True)
 class LocalLLMConfig:
     base_url: str
+    origin: str
     model_name: str
     host: str
     scheme: str
@@ -89,6 +90,7 @@ def get_local_llm_config() -> LocalLLMConfig:
 
     return LocalLLMConfig(
         base_url=raw_url.rstrip("/"),
+        origin=f"{parsed.scheme}://{parsed.netloc}",
         model_name=model_name,
         host=parsed.hostname,
         scheme=parsed.scheme,
@@ -107,6 +109,28 @@ def probe_local_llm(timeout: float = 2.0) -> dict[str, Any]:
         response.raise_for_status()
         payload = response.json()
     except Exception as exc:
+        try:
+            health_response = requests.get(f"{config.origin}/health", timeout=timeout)
+            health_response.raise_for_status()
+            health_payload = health_response.json()
+        except Exception:
+            health_payload = None
+
+        if health_payload is not None:
+            return {
+                "status": "mismatched_service",
+                "reachable": False,
+                "probe_url": probe_url,
+                "configured_url": config.base_url,
+                "model_name": config.model_name,
+                "is_private_network": config.is_private_network,
+                "error": (
+                    "The configured endpoint is reachable, but it does not expose "
+                    "the expected OpenAI-compatible /v1/models route."
+                ),
+                "health_payload": health_payload,
+            }
+
         return {
             "status": "unreachable",
             "reachable": False,
