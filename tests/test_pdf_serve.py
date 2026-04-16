@@ -94,7 +94,8 @@ def _install_stubs():
     for name in ["core.governance.prompts", "core.governance.gateway",
                  "core.models.source", "core.storage.notebook_store",
                  "core.storage.source_registry", "core.storage.note_store",
-                 "core.storage.chat_history_store"]:
+                 "core.storage.chat_history_store", "core.storage.studio_store",
+                 "core.models.studio_output"]:
         if name not in sys.modules:
             _stub(name)
 
@@ -102,6 +103,9 @@ def _install_stubs():
     if not hasattr(prompts, "QA_SYSTEM_PROMPT"):
         prompts.QA_SYSTEM_PROMPT = "{context_blocks}"
         prompts.build_context_block = lambda x: str(x)
+    if not hasattr(prompts, "STUDIO_PROMPTS"):
+        prompts.STUDIO_PROMPTS = {t: "{context_blocks}" for t in
+            ("summary", "faq", "briefing", "glossary", "action_items")}
 
     gw = sys.modules["core.governance.gateway"]
     if not hasattr(gw, "AntiHallucinationGateway"):
@@ -135,6 +139,18 @@ def _install_stubs():
     ch_mod = sys.modules["core.storage.chat_history_store"]
     if not hasattr(ch_mod, "ChatHistoryStore"):
         ch_mod.ChatHistoryStore = MagicMock
+
+    ss_mod = sys.modules["core.storage.studio_store"]
+    if not hasattr(ss_mod, "StudioStore"):
+        ss_mod.StudioStore = MagicMock
+
+    so_mod = sys.modules["core.models.studio_output"]
+    if not hasattr(so_mod, "StudioOutputType"):
+        class _SOT:
+            @staticmethod
+            def values():
+                return ["summary", "faq", "briefing", "glossary", "action_items"]
+        so_mod.StudioOutputType = _SOT
 
 
 _install_stubs()
