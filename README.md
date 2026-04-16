@@ -35,6 +35,7 @@ Build/runtime behavior:
 - The Docker build now runs `scripts/pre_download_models.py` in strict mode, so the image build fails if either the embedding or reranker model is not cached successfully.
 - Runtime sets `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `EMBEDDING_LOCAL_FILES_ONLY=1`, and `RERANKER_LOCAL_FILES_ONLY=1` to prevent fallback downloads.
 - `docker-compose.yml` includes an HTTP health check against `/api/v1/health` so deployment state is visible without attaching to logs.
+- The default `VLLM_URL` placeholder now points to port `8001` to avoid colliding with the FastAPI service on `8000`; override it to the real local inference endpoint in each deployment.
 
 ## 🛡️ Governance Constraints
 

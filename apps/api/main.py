@@ -298,7 +298,9 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
         LLMUnavailableError: If the vLLM service is unreachable or returns
             a non-2xx response, so callers can return HTTP 503.
     """
-    vllm_url = os.getenv("VLLM_URL", "http://localhost:8000/v1").rstrip("/")
+    # Use a dedicated inference port by default so the API does not
+    # accidentally point back to itself when VLLM_URL is unset.
+    vllm_url = os.getenv("VLLM_URL", "http://localhost:8001/v1").rstrip("/")
     model_name = os.getenv("LOCAL_LLM_MODEL", "qwen-2.5")
     try:
         resp = requests.post(
