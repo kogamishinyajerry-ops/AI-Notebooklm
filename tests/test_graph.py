@@ -272,7 +272,7 @@ class TestGraphStore:
         from core.storage.graph_store import GraphStore  # noqa: PLC0415
         from core.knowledge.graph_extractor import GraphExtractor  # noqa: PLC0415
 
-        store = GraphStore(spaces_dir=tmp_path)
+        store = GraphStore(db_path=tmp_path / "notebooks.db")
         extractor = GraphExtractor(min_freq=1)
         graph = extractor.extract(SAMPLE_CHUNKS)
 
@@ -286,14 +286,14 @@ class TestGraphStore:
     def test_load_missing_returns_none(self, tmp_path):
         from core.storage.graph_store import GraphStore  # noqa: PLC0415
 
-        store = GraphStore(spaces_dir=tmp_path)
+        store = GraphStore(db_path=tmp_path / "notebooks.db")
         assert store.load("no-such-notebook") is None
 
     def test_exists(self, tmp_path):
         from core.storage.graph_store import GraphStore  # noqa: PLC0415
         from core.knowledge.graph_extractor import GraphExtractor  # noqa: PLC0415
 
-        store = GraphStore(spaces_dir=tmp_path)
+        store = GraphStore(db_path=tmp_path / "notebooks.db")
         assert not store.exists("nb-x")
         extractor = GraphExtractor(min_freq=1)
         graph = extractor.extract(SAMPLE_CHUNKS)
@@ -304,7 +304,7 @@ class TestGraphStore:
         from core.storage.graph_store import GraphStore  # noqa: PLC0415
         from core.knowledge.graph_extractor import GraphExtractor  # noqa: PLC0415
 
-        store = GraphStore(spaces_dir=tmp_path)
+        store = GraphStore(db_path=tmp_path / "notebooks.db")
         extractor = GraphExtractor(min_freq=1)
         store.save("nb-del", extractor.extract(SAMPLE_CHUNKS))
         assert store.delete("nb-del") is True
@@ -437,7 +437,7 @@ def _get_app(tmp_path: Path):
     # Wire real GraphStore + GraphExtractor to use tmp_path
     from core.storage.graph_store import GraphStore  # noqa: PLC0415
     from core.knowledge.graph_extractor import GraphExtractor  # noqa: PLC0415
-    main_mod.graph_store = GraphStore(spaces_dir=tmp_path)
+    main_mod.graph_store = GraphStore(db_path=tmp_path / "notebooks.db")
     main_mod.graph_extractor = GraphExtractor(min_freq=1)
 
     # Wire notebook_store so notebook_id lookups work
@@ -574,7 +574,7 @@ class TestGraphStoreGapA:
         ]
         kg = KnowledgeGraph(nodes=nodes, edges=edges, generated_at="2026-01-01T00:00:00Z")
 
-        gs = GraphStore(spaces_dir=tmp_path)
+        gs = GraphStore(db_path=tmp_path / "notebooks.db")
         gs.save("nb-1", kg)
         return gs
 
@@ -599,7 +599,7 @@ class TestGraphStoreGapA:
     def test_get_neighbors_no_graph(self, tmp_path):
         """No graph stored → empty list (graceful degradation)."""
         from core.storage.graph_store import GraphStore  # noqa: PLC0415
-        gs = GraphStore(spaces_dir=tmp_path)
+        gs = GraphStore(db_path=tmp_path / "notebooks.db")
         assert gs.get_neighbors("missing-nb", "CFD", depth=1) == []
 
     def test_get_source_chunks_known_entity(self, tmp_path):
@@ -616,7 +616,7 @@ class TestGraphStoreGapA:
     def test_get_source_chunks_no_graph(self, tmp_path):
         """No graph persisted → empty list."""
         from core.storage.graph_store import GraphStore  # noqa: PLC0415
-        gs = GraphStore(spaces_dir=tmp_path)
+        gs = GraphStore(db_path=tmp_path / "notebooks.db")
         assert gs.get_source_chunks("missing-nb", "CFD") == []
 
     def test_chunk_ids_preserved_in_roundtrip(self, tmp_path):
@@ -624,7 +624,7 @@ class TestGraphStoreGapA:
         from core.models.graph import GraphNode, KnowledgeGraph  # noqa: PLC0415
         from core.storage.graph_store import GraphStore  # noqa: PLC0415
 
-        gs = GraphStore(spaces_dir=tmp_path)
+        gs = GraphStore(db_path=tmp_path / "notebooks.db")
         kg = KnowledgeGraph(nodes=[
             GraphNode(id="rans", label="RANS", weight=0.9, lang="en",
                       chunk_ids=["x", "y", "z"])

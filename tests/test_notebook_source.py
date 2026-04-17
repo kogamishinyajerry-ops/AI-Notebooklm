@@ -10,7 +10,7 @@ from core.storage.source_registry import SourceRegistry
 
 
 def test_create_list_and_delete_notebook(tmp_path):
-    store = NotebookStore(notebooks_path=tmp_path / "notebooks.json", spaces_dir=tmp_path / "spaces")
+    store = NotebookStore(db_path=tmp_path / "notebooks.db", spaces_dir=tmp_path / "spaces")
 
     first = store.create("First notebook")
     second = store.create("Second notebook")
@@ -25,7 +25,7 @@ def test_create_list_and_delete_notebook(tmp_path):
 
 
 def test_source_registry_lifecycle_and_notebook_isolation(tmp_path):
-    registry = SourceRegistry(spaces_dir=tmp_path / "spaces")
+    registry = SourceRegistry(db_path=tmp_path / "notebooks.db", spaces_dir=tmp_path / "spaces")
 
     source_a = registry.register("notebook-a", "a.pdf", "data/spaces/notebook-a/docs/a.pdf")
     source_b = registry.register("notebook-b", "b.pdf", "data/spaces/notebook-b/docs/b.pdf")
@@ -150,10 +150,13 @@ def import_api_with_fakes(monkeypatch, tmp_path, should_fail=False):
     monkeypatch.setattr(embeddings, "SentenceTransformer", FakeSentenceTransformer)
     api = importlib.import_module("apps.api.main")
     api.notebook_store = NotebookStore(
-        notebooks_path=tmp_path / "notebooks.json",
+        db_path=tmp_path / "notebooks.db",
         spaces_dir=tmp_path / "spaces",
     )
-    api.source_registry = SourceRegistry(spaces_dir=tmp_path / "spaces")
+    api.source_registry = SourceRegistry(
+        db_path=tmp_path / "notebooks.db",
+        spaces_dir=tmp_path / "spaces",
+    )
     api.ingestion_service = FakeIngestionService(should_fail=should_fail)
     return api
 

@@ -113,7 +113,7 @@ def _evict_store_stubs():
 class TestNoteStore:
     def test_create_and_list(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         note = store.create("nb-1", "This is a test answer.", citations=[], title="Test Note")
         notes = store.list_by_notebook("nb-1")
         assert len(notes) == 1
@@ -122,13 +122,13 @@ class TestNoteStore:
 
     def test_default_title_truncation(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         note = store.create("nb-1", "A" * 100, citations=[])
         assert len(note.title) <= 41  # 40 chars + ellipsis char
 
     def test_get(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         note = store.create("nb-1", "content", citations=[])
         fetched = store.get("nb-1", note.id)
         assert fetched is not None
@@ -136,12 +136,12 @@ class TestNoteStore:
 
     def test_get_missing_returns_none(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         assert store.get("nb-1", "ghost") is None
 
     def test_update_title(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         note = store.create("nb-1", "original", citations=[])
         updated = store.update("nb-1", note.id, title="Updated Title")
         assert updated.title == "Updated Title"
@@ -149,25 +149,25 @@ class TestNoteStore:
 
     def test_update_missing_raises_key_error(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         with pytest.raises(KeyError):
             store.update("nb-1", "ghost", title="x")
 
     def test_delete(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         note = store.create("nb-1", "to delete", citations=[])
         assert store.delete("nb-1", note.id) is True
         assert store.get("nb-1", note.id) is None
 
     def test_delete_missing_returns_false(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         assert store.delete("nb-1", "ghost") is False
 
     def test_notebooks_isolated(self, tmp_path):
         from core.storage.note_store import NoteStore
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         store.create("nb-a", "note A", citations=[])
         store.create("nb-b", "note B", citations=[])
         assert len(store.list_by_notebook("nb-a")) == 1
@@ -176,7 +176,7 @@ class TestNoteStore:
     def test_citations_persisted(self, tmp_path):
         from core.storage.note_store import NoteStore
         citations = [{"source_file": "a.pdf", "page_number": 1, "content": "text", "bbox": None}]
-        store = NoteStore(spaces_dir=tmp_path)
+        store = NoteStore(db_path=tmp_path / "notebooks.db")
         note = store.create("nb-1", "content", citations=citations)
         fetched = store.get("nb-1", note.id)
         assert fetched.citations == citations
@@ -189,7 +189,7 @@ class TestNoteStore:
 class TestChatHistoryStore:
     def test_append_and_list(self, tmp_path):
         from core.storage.chat_history_store import ChatHistoryStore
-        store = ChatHistoryStore(spaces_dir=tmp_path)
+        store = ChatHistoryStore(db_path=tmp_path / "notebooks.db")
         store.append("nb-1", "user", "Hello")
         store.append("nb-1", "assistant", "Hi there", citations=[], is_fully_verified=True)
         msgs = store.list_by_notebook("nb-1")
@@ -200,7 +200,7 @@ class TestChatHistoryStore:
 
     def test_list_limit(self, tmp_path):
         from core.storage.chat_history_store import ChatHistoryStore
-        store = ChatHistoryStore(spaces_dir=tmp_path)
+        store = ChatHistoryStore(db_path=tmp_path / "notebooks.db")
         for i in range(10):
             store.append("nb-1", "user", f"msg {i}")
         msgs = store.list_by_notebook("nb-1", limit=5)
@@ -209,7 +209,7 @@ class TestChatHistoryStore:
 
     def test_clear(self, tmp_path):
         from core.storage.chat_history_store import ChatHistoryStore
-        store = ChatHistoryStore(spaces_dir=tmp_path)
+        store = ChatHistoryStore(db_path=tmp_path / "notebooks.db")
         store.append("nb-1", "user", "hello")
         store.append("nb-1", "assistant", "world")
         count = store.clear("nb-1")
@@ -218,7 +218,7 @@ class TestChatHistoryStore:
 
     def test_fifo_eviction(self, tmp_path):
         from core.storage.chat_history_store import ChatHistoryStore, MAX_HISTORY
-        store = ChatHistoryStore(spaces_dir=tmp_path)
+        store = ChatHistoryStore(db_path=tmp_path / "notebooks.db")
         for i in range(MAX_HISTORY + 5):
             store.append("nb-1", "user", f"msg {i}")
         msgs = store.list_by_notebook("nb-1", limit=0)
@@ -227,7 +227,7 @@ class TestChatHistoryStore:
 
     def test_notebooks_isolated(self, tmp_path):
         from core.storage.chat_history_store import ChatHistoryStore
-        store = ChatHistoryStore(spaces_dir=tmp_path)
+        store = ChatHistoryStore(db_path=tmp_path / "notebooks.db")
         store.append("nb-a", "user", "in A")
         store.append("nb-b", "user", "in B")
         assert len(store.list_by_notebook("nb-a")) == 1
@@ -359,8 +359,8 @@ def _get_app(tmp_path):
     mock_nb_store.get.side_effect = lambda nid: mock_nb if nid == "nb-1" else None
 
     api.notebook_store = mock_nb_store
-    api.note_store = NoteStore(spaces_dir=tmp_path)
-    api.chat_history_store = ChatHistoryStore(spaces_dir=tmp_path)
+    api.note_store = NoteStore(db_path=tmp_path / "notebooks.db")
+    api.chat_history_store = ChatHistoryStore(db_path=tmp_path / "notebooks.db")
     # studio_store remains as MagicMock (not exercised in this test file)
 
     return api.app, api

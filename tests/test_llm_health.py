@@ -37,6 +37,10 @@ def _install_stubs() -> None:
         tx_mod.iter_space_ids = MagicMock(return_value=[])
         tx_mod.recover_incomplete_transactions = MagicMock()
         tx_mod.summarize_transaction_health = MagicMock(return_value={})
+        # graph_store.py imports these at module level; add them so deferred imports succeed
+        from pathlib import Path
+        tx_mod.DEFAULT_SPACES_DIR = Path("data/spaces")
+        tx_mod.utc_now_iso = lambda: "2025-01-01T00:00:00Z"
 
     if "core.retrieval.retriever" not in sys.modules:
         retr_mod = _stub("core.retrieval.retriever")
@@ -113,6 +117,22 @@ def _cleanup_stubbed_modules():
     for mod in (
         "apps.api.main",
         "core.retrieval.retriever",
+        # Evict the bare core.storage stub (created by test_cross_notebook_isolation).
+        # Without this, core.storage remains as a regular ModuleType that replaces
+        # the namespace package, causing "core.storage is not a package" in later tests.
+        "core.storage",
+        # Storage stubs installed by _install_stubs() — must be evicted so
+        # subsequent tests (e.g. test_graph.py) get the real storage modules.
+        "core.storage.notebook_store",
+        "core.storage.source_registry",
+        "core.storage.note_store",
+        "core.storage.chat_history_store",
+        "core.storage.studio_store",
+        "core.storage.graph_store",
+        "core.storage.sqlite_db",
+        "core.knowledge.graph_extractor",
+        # Also evict core.ingestion.transaction stub so graph_store.py can import it
+        "core.ingestion.transaction",
     ):
         sys.modules.pop(mod, None)
 

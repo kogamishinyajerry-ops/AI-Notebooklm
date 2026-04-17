@@ -202,6 +202,10 @@ def _install_stubs():
     tx_mod.iter_space_ids = MagicMock(return_value=[])
     tx_mod.recover_incomplete_transactions = MagicMock()
     tx_mod.summarize_transaction_health = MagicMock(return_value={})
+    # graph_store.py imports these at module level; add them so deferred imports succeed
+    from pathlib import Path
+    tx_mod.DEFAULT_SPACES_DIR = Path("data/spaces")
+    tx_mod.utc_now_iso = lambda: "2025-01-01T00:00:00Z"
 
     # ---- core.governance.prompts & gateway ----
     prompts_mod = _stub("core.governance.prompts")

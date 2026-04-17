@@ -33,6 +33,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 _real_sentence_transformers = None
 _torch_mod = None
 _transformers_mod = None
+_real_core_ingestion_transaction = None
 for _name in ("torch", "transformers", "sentence_transformers"):
     try:
         __import__(_name)
@@ -46,6 +47,18 @@ for _name in ("torch", "transformers", "sentence_transformers"):
                 _transformers_mod = _mod
     except ImportError:
         pass  # offline env may not have them; accept that case gracefully
+
+# Pre-import core.ingestion.transaction so we capture the REAL module before
+# test_cross_notebook_isolation.py stubs it. This must be done before any test
+# module is imported (pytest imports conftest before collecting tests).
+try:
+    __import__("core.ingestion.transaction")
+    _tx_mod = sys.modules.get("core.ingestion.transaction")
+    if _tx_mod is not None and "MagicMock" not in type(_tx_mod).__name__:
+        _real_core_ingestion_transaction = _tx_mod
+except (ImportError, AttributeError):
+    pass
+
 
 
 @pytest.fixture(scope="session", autouse=False)
@@ -91,7 +104,10 @@ def eval_corpus_setup():
     # NOTE: chromadb_cached may be None if test_gap_a_retriever.py's module-level
     # cleanup deleted sys.modules["chromadb"] after conftest cached it at module-load time.
     # We treat None as "needs restoration" to cover this case too.
-    if chromadb_is_stub or vs_is_stub or chromadb_cached is None:
+    # V4.1-T2: Cleanup now always runs (not just when chromadb/vs are stubs) because
+    # test_cross_notebook_isolation may have stubbed core.storage and
+    # core.ingestion.transaction even when chromadb is the real module.
+    if True:  # noqa: E720
         pass  # cleanup runs below
 
         keys_to_remove = []
@@ -108,6 +124,28 @@ def eval_corpus_setup():
                 keys_to_remove.append(key)
             elif key == "fitz":
                 keys_to_remove.append(key)
+            # Evict the bare stub for core.storage itself (created by
+            # test_cross_notebook_isolation) so re-imported storage submodules
+            # can find sqlite_db inside the real core.storage package.
+            elif key == "core.storage":
+                keys_to_remove.append(key)
+            elif key == "core.storage.graph_store" or key.startswith("core.storage.graph_store."):
+                keys_to_remove.append(key)
+            elif key == "core.storage.sqlite_db" or key.startswith("core.storage.sqlite_db."):
+                keys_to_remove.append(key)
+            elif key == "core.storage.notebook_store" or key.startswith("core.storage.notebook_store."):
+                keys_to_remove.append(key)
+            elif key == "core.storage.source_registry" or key.startswith("core.storage.source_registry."):
+                keys_to_remove.append(key)
+            elif key == "core.storage.note_store" or key.startswith("core.storage.note_store."):
+                keys_to_remove.append(key)
+            elif key == "core.storage.chat_history_store" or key.startswith("core.storage.chat_history_store."):
+                keys_to_remove.append(key)
+            elif key == "core.storage.studio_store" or key.startswith("core.storage.studio_store."):
+                keys_to_remove.append(key)
+            # After all children are collected, also add core.storage itself so it
+            # is evicted FIRST (parent before child is critical: otherwise re-import
+            # of graph_store finds the stub core.storage and fails to import sqlite_db).
             # NOTE: sentence_transformers, torch, and transformers are NOT added to
             # keys_to_remove. They were pre-imported at conftest module level BEFORE
             # test_gap_a_retriever.py ran, so _real_sentence_transformers holds the REAL
@@ -148,6 +186,19 @@ def eval_corpus_setup():
             sys.modules["torch"] = _torch_mod
         if _transformers_mod is not None:
             sys.modules["transformers"] = _transformers_mod
+        # Restore the real core.ingestion.transaction (polluted by
+        # test_cross_notebook_isolation which stubs it without DEFAULT_SPACES_DIR).
+        # We must evict the stub and re-import to get the real module with DEFAULT_SPACES_DIR.
+        # In the full suite, _real_core_ingestion_transaction is None (conftest loaded before
+        # any test imported core.ingestion.transaction), so we force a fresh import.
+        sys.modules.pop("core.ingestion.transaction", None)
+        for _k in list(sys.modules.keys()):
+            if _k.startswith("core.ingestion.transaction."):
+                sys.modules.pop(_k, None)
+        try:
+            importlib.import_module("core.ingestion.transaction")
+        except ImportError:
+            pass
 
         # CRITICAL: Re-import the ENTIRE core/retrieval module chain AFTER restoring
         # sentence_transformers, to ensure ALL cached class references are refreshed.
@@ -171,6 +222,43 @@ def eval_corpus_setup():
                 importlib.import_module(_k)
             except ImportError:
                 pass  # submodule may not exist as a standalone import
+
+        # Restore real storage modules (polluted by test_cross_notebook_isolation.py stubs)
+        # CRITICAL: Evict the stub core.storage PARENT first, so that when submodules are
+        # re-imported they find the real core.storage package (which will be recreated
+        # on-demand by Python's import system). If a submodule is re-imported before
+        # core.storage is evicted, Python re-uses the stub core.storage and the
+        # import of sqlite_db inside graph_store.py fails.
+        _stub_core_storage = sys.modules.pop("core.storage", None)
+        for _storage_mod in (
+            "core.storage.sqlite_db",
+            "core.storage.graph_store",
+            "core.storage.notebook_store",
+            "core.storage.source_registry",
+            "core.storage.note_store",
+            "core.storage.chat_history_store",
+            "core.storage.studio_store",
+        ):
+            if _storage_mod in sys.modules:
+                del sys.modules[_storage_mod]
+        # Now re-import parent first, then submodules
+        try:
+            importlib.import_module("core.storage")
+        except ImportError:
+            pass
+        for _storage_mod in (
+            "core.storage.sqlite_db",
+            "core.storage.graph_store",
+            "core.storage.notebook_store",
+            "core.storage.source_registry",
+            "core.storage.note_store",
+            "core.storage.chat_history_store",
+            "core.storage.studio_store",
+        ):
+            try:
+                importlib.import_module(_storage_mod)
+            except ImportError:
+                pass
 
         # CRITICAL: Fix cached chromadb references in all retrieval modules.
         # test_gap_a_retriever patches sys.modules["chromadb"].PersistentClient = MagicMock().

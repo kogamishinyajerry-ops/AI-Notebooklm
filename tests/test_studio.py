@@ -100,7 +100,7 @@ class TestStudioOutputType:
 class TestStudioStore:
     def test_create_and_list(self, tmp_path):
         from core.storage.studio_store import StudioStore
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         out = store.create("nb-1", "summary", "Generated content", citations=[])
         items = store.list_by_notebook("nb-1")
         assert len(items) == 1
@@ -109,19 +109,19 @@ class TestStudioStore:
 
     def test_auto_title(self, tmp_path):
         from core.storage.studio_store import StudioStore
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         out = store.create("nb-1", "faq", "Q&A content", citations=[])
         assert "FAQ" in out.title or "faq" in out.title.lower()
 
     def test_custom_title(self, tmp_path):
         from core.storage.studio_store import StudioStore
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         out = store.create("nb-1", "briefing", "content", citations=[], title="Custom Title")
         assert out.title == "Custom Title"
 
     def test_get(self, tmp_path):
         from core.storage.studio_store import StudioStore
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         out = store.create("nb-1", "glossary", "Terms...", citations=[])
         fetched = store.get("nb-1", out.id)
         assert fetched is not None
@@ -129,24 +129,24 @@ class TestStudioStore:
 
     def test_get_missing_returns_none(self, tmp_path):
         from core.storage.studio_store import StudioStore
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         assert store.get("nb-1", "ghost") is None
 
     def test_delete(self, tmp_path):
         from core.storage.studio_store import StudioStore
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         out = store.create("nb-1", "action_items", "Tasks...", citations=[])
         assert store.delete("nb-1", out.id) is True
         assert store.get("nb-1", out.id) is None
 
     def test_delete_missing_returns_false(self, tmp_path):
         from core.storage.studio_store import StudioStore
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         assert store.delete("nb-1", "ghost") is False
 
     def test_notebooks_isolated(self, tmp_path):
         from core.storage.studio_store import StudioStore
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         store.create("nb-a", "summary", "A content", citations=[])
         store.create("nb-b", "faq", "B content", citations=[])
         assert len(store.list_by_notebook("nb-a")) == 1
@@ -155,7 +155,7 @@ class TestStudioStore:
     def test_citations_persisted(self, tmp_path):
         from core.storage.studio_store import StudioStore
         citations = [{"source_file": "doc.pdf", "page_number": 2, "content": "text", "bbox": None}]
-        store = StudioStore(spaces_dir=tmp_path)
+        store = StudioStore(db_path=tmp_path / "notebooks.db")
         out = store.create("nb-1", "summary", "content", citations=citations)
         fetched = store.get("nb-1", out.id)
         assert fetched.citations == citations
@@ -263,9 +263,9 @@ def _get_app(tmp_path):
     mock_nb_store.get.side_effect = lambda nid: mock_nb if nid == "nb-1" else None
 
     api.notebook_store = mock_nb_store
-    api.note_store = NoteStore(spaces_dir=tmp_path)
-    api.chat_history_store = ChatHistoryStore(spaces_dir=tmp_path)
-    api.studio_store = StudioStore(spaces_dir=tmp_path)
+    api.note_store = NoteStore(db_path=tmp_path / "notebooks.db")
+    api.chat_history_store = ChatHistoryStore(db_path=tmp_path / "notebooks.db")
+    api.studio_store = StudioStore(db_path=tmp_path / "notebooks.db")
 
     return api.app, api
 
