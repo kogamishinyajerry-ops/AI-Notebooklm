@@ -1,32 +1,49 @@
+"""
+core/storage/studio_store.py
+=============================
+V4.1-T2: SQLite-backed StudioStore.
+
+Per-notebook studio outputs persisted in data/notebooks.db (studio_outputs table).
+No per-notebook JSON files.
+"""
+
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from core.ingestion.transaction import DEFAULT_SPACES_DIR, resolve_space_path, utc_now_iso
+from core.ingestion.transaction import DEFAULT_SPACES_DIR, utc_now_iso
 from core.models.studio_output import StudioOutput
-from core.storage.json_store import read_json, write_json_atomic
+
+
+def _get_conn(db_path):
+    """Deferred import to avoid breaking test_cross_notebook_isolation."""
+    from core.storage.sqlite_db import get_connection, init_schema
+    conn = get_connection(db_path)
+    init_schema(conn)
+    return conn
 
 
 class StudioStore:
     """
-    JSON-persisted store for Text Studio generated outputs, scoped per notebook.
-    Storage: data/spaces/{notebook_id}/studio.json
+    SQLite-persisted store for Text Studio generated outputs, scoped per notebook.
+    Storage: data/notebooks.db (studio_outputs table)
     """
 
-    def __init__(self, spaces_dir: str | Path = DEFAULT_SPACES_DIR):
+    def __init__(
+        self,
+        db_path: str | Path = Path("data/notebooks.db"),
+        spaces_dir: str | Path = DEFAULT_SPACES_DIR,
+    ):
+        self.db_path = Path(db_path)
         self.spaces_dir = Path(spaces_dir)
 
-    def _path(self, notebook_id: str) -> Path:
-        return resolve_space_path(notebook_id, "studio.json", base_dir=self.spaces_dir)
-
-    def _read(self, notebook_id: str) -> List[StudioOutput]:
-        data = read_json(self._path(notebook_id), default=[])
-        return [StudioOutput.from_dict(item) for item in data]
-
-    def _write(self, notebook_id: str, outputs: List[StudioOutput]) -> None:
-        write_json_atomic(self._path(notebook_id), [o.to_dict() for o in outputs])
+    def _conn(self):
+        conn = _get_conn(self.db_path)
+        conn.execute("PRAGMA foreign_keys=OFF")
+        return conn
 
     def create(
         self,
@@ -37,8 +54,8 @@ class StudioStore:
         title: str | None = None,
     ) -> StudioOutput:
         now = utc_now_iso()
-        # Auto-title: type label + timestamp suffix (last 5 chars of ISO string)
         from core.models.studio_output import StudioOutputType
+
         type_labels = StudioOutputType.labels()
         try:
             label = type_labels[StudioOutputType(output_type)]
@@ -55,21 +72,71 @@ class StudioStore:
             citations=citations,
             created_at=now,
         )
-        outputs = self._read(notebook_id)
-        outputs.append(output)
-        self._write(notebook_id, outputs)
+        conn = self._conn()
+        try:
+            conn.execute(
+                """INSERT INTO studio_outputs
+                   (id, notebook_id, output_type, title, content, citations, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    output.id, output.notebook_id, output.output_type,
+                    output.title, output.content,
+                    json.dumps(output.citations, ensure_ascii=False),
+                    output.created_at,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
         return output
 
     def list_by_notebook(self, notebook_id: str) -> List[StudioOutput]:
-        return self._read(notebook_id)
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM studio_outputs
+                   WHERE notebook_id = ?
+                   ORDER BY created_at ASC""",
+                (notebook_id,),
+            ).fetchall()
+            return [self._row_to_output(r) for r in rows]
+        finally:
+            conn.close()
 
     def get(self, notebook_id: str, output_id: str) -> Optional[StudioOutput]:
-        return next((o for o in self._read(notebook_id) if o.id == output_id), None)
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                """SELECT * FROM studio_outputs
+                   WHERE id = ? AND notebook_id = ?""",
+                (output_id, notebook_id),
+            ).fetchone()
+            return self._row_to_output(row) if row else None
+        finally:
+            conn.close()
 
     def delete(self, notebook_id: str, output_id: str) -> bool:
-        outputs = self._read(notebook_id)
-        remaining = [o for o in outputs if o.id != output_id]
-        if len(remaining) == len(outputs):
-            return False
-        self._write(notebook_id, remaining)
-        return True
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                "DELETE FROM studio_outputs WHERE id = ? AND notebook_id = ?",
+                (output_id, notebook_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def _row_to_output(self, row) -> StudioOutput:
+        return StudioOutput(
+            id=row["id"],
+            notebook_id=row["notebook_id"],
+            output_type=row["output_type"],
+            title=row["title"],
+            content=row["content"],
+            citations=(
+                json.loads(row["citations"])
+                if row["citations"] else []
+            ),
+            created_at=row["created_at"],
+        )

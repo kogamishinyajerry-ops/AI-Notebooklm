@@ -1,28 +1,52 @@
+"""
+core/storage/source_registry.py
+===============================
+V4.1-T2: SQLite-backed SourceRegistry.
+
+Per-notebook sources persisted in data/notebooks.db (sources table).
+No per-notebook JSON files.
+"""
+
 from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import List, Optional
 
-from core.ingestion.transaction import DEFAULT_SPACES_DIR, resolve_space_path, utc_now_iso
+from core.ingestion.transaction import DEFAULT_SPACES_DIR, utc_now_iso
 from core.models.source import Source, SourceStatus
-from core.storage.json_store import read_json, write_json_atomic
+
+
+def _get_conn(db_path):
+    """Deferred import to avoid breaking test_cross_notebook_isolation."""
+    from core.storage.sqlite_db import get_connection, init_schema
+    conn = get_connection(db_path)
+    init_schema(conn)
+    return conn
 
 
 class SourceRegistry:
-    def __init__(self, spaces_dir: str | Path = DEFAULT_SPACES_DIR):
+    """
+    SQLite-persisted registry of uploaded sources per notebook.
+    Storage: data/notebooks.db (sources table)
+    """
+
+    def __init__(
+        self,
+        db_path: str | Path = Path("data/notebooks.db"),
+        spaces_dir: str | Path = DEFAULT_SPACES_DIR,
+    ):
+        self.db_path = Path(db_path)
         self.spaces_dir = Path(spaces_dir)
 
-    def _path(self, notebook_id: str) -> Path:
-        return resolve_space_path(notebook_id, "sources.json", base_dir=self.spaces_dir)
+    def _conn(self):
+        conn = _get_conn(self.db_path)
+        conn.execute("PRAGMA foreign_keys=OFF")
+        return conn
 
-    def _read(self, notebook_id: str) -> list[Source]:
-        data = read_json(self._path(notebook_id), default=[])
-        return [Source.from_dict(item) for item in data]
-
-    def _write(self, notebook_id: str, sources: list[Source]) -> None:
-        write_json_atomic(self._path(notebook_id), [source.to_dict() for source in sources])
-
-    def register(self, notebook_id: str, filename: str, file_path: str) -> Source:
+    def register(
+        self, notebook_id: str, filename: str, file_path: str
+    ) -> Source:
         now = utc_now_iso()
         source = Source(
             id=str(uuid.uuid4()),
@@ -35,16 +59,46 @@ class SourceRegistry:
             created_at=now,
             updated_at=now,
         )
-        sources = self._read(notebook_id)
-        sources.append(source)
-        self._write(notebook_id, sources)
+        conn = self._conn()
+        try:
+            conn.execute(
+                """INSERT INTO sources
+                   (id, notebook_id, filename, file_path, status,
+                    page_count, chunk_count, created_at, updated_at, error_message)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    source.id, source.notebook_id, source.filename,
+                    source.file_path, source.status.value,
+                    source.page_count, source.chunk_count,
+                    source.created_at, source.updated_at, source.error_message,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
         return source
 
     def get(self, notebook_id: str, source_id: str) -> Source | None:
-        return next((source for source in self._read(notebook_id) if source.id == source_id), None)
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM sources WHERE id = ? AND notebook_id = ?",
+                (source_id, notebook_id),
+            ).fetchone()
+            return self._row_to_source(row) if row else None
+        finally:
+            conn.close()
 
     def list_by_notebook(self, notebook_id: str) -> list[Source]:
-        return self._read(notebook_id)
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM sources WHERE notebook_id = ? ORDER BY created_at ASC",
+                (notebook_id,),
+            ).fetchall()
+            return [self._row_to_source(r) for r in rows]
+        finally:
+            conn.close()
 
     def update_status(
         self,
@@ -55,28 +109,59 @@ class SourceRegistry:
         chunk_count: int | None = None,
         error_message: str | None = None,
     ) -> Source:
-        next_status = status if isinstance(status, SourceStatus) else SourceStatus(status)
-        sources = self._read(notebook_id)
-        for index, source in enumerate(sources):
-            if source.id != source_id:
-                continue
+        next_status = (
+            status if isinstance(status, SourceStatus) else SourceStatus(status)
+        )
+        now = utc_now_iso()
+        setters, values = ["status = ?", "updated_at = ?"], [next_status.value, now]
 
-            source.status = next_status
-            source.updated_at = utc_now_iso()
-            if page_count is not None:
-                source.page_count = page_count
-            if chunk_count is not None:
-                source.chunk_count = chunk_count
-            source.error_message = error_message
-            sources[index] = source
-            self._write(notebook_id, sources)
-            return source
-        raise KeyError(source_id)
+        if page_count is not None:
+            setters.append("page_count = ?")
+            values.append(page_count)
+        if chunk_count is not None:
+            setters.append("chunk_count = ?")
+            values.append(chunk_count)
+        if error_message is not None:
+            setters.append("error_message = ?")
+            values.append(error_message)
+        values.extend([source_id, notebook_id])
+
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                f"""UPDATE sources SET {', '.join(setters)}
+                    WHERE id = ? AND notebook_id = ?""",
+                values,
+            )
+            conn.commit()
+            if cur.rowcount == 0:
+                raise KeyError(source_id)
+            return self.get(notebook_id, source_id)
+        finally:
+            conn.close()
 
     def delete(self, notebook_id: str, source_id: str) -> bool:
-        sources = self._read(notebook_id)
-        remaining = [source for source in sources if source.id != source_id]
-        if len(remaining) == len(sources):
-            return False
-        self._write(notebook_id, remaining)
-        return True
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                "DELETE FROM sources WHERE id = ? AND notebook_id = ?",
+                (source_id, notebook_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def _row_to_source(self, row) -> Source:
+        return Source(
+            id=row["id"],
+            notebook_id=row["notebook_id"],
+            filename=row["filename"],
+            file_path=row["file_path"],
+            status=SourceStatus(row["status"]),
+            page_count=row["page_count"],
+            chunk_count=row["chunk_count"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            error_message=row["error_message"],
+        )

@@ -29,14 +29,15 @@ from core.retrieval.retriever import RetrieverEngine
 from core.governance.prompts import QA_SYSTEM_PROMPT, build_context_block
 from core.governance.gateway import AntiHallucinationGateway
 from core.models.source import SourceStatus
-from core.storage.notebook_store import NotebookStore
-from core.storage.source_registry import SourceRegistry
-from core.storage.note_store import NoteStore
-from core.storage.chat_history_store import ChatHistoryStore
-from core.storage.studio_store import StudioStore
 from core.models.studio_output import StudioOutputType
 from core.governance.prompts import STUDIO_PROMPTS
-from core.storage.graph_store import GraphStore
+
+# V4.1-T2: Central DB path — all stores share the same SQLite DB
+_DATA_DIR = Path("data")
+_DB_PATH = _DATA_DIR / "notebooks.db"
+# Mirrored from core.ingestion.transaction to avoid triggering that import
+# (which is stubbed by test_cross_notebook_isolation.py) at module load time.
+DEFAULT_SPACES_DIR = Path("data/spaces")
 from core.knowledge.graph_extractor import GraphExtractor
 from core.llm.vllm_client import (
     LLMConfigurationError,
@@ -49,24 +50,59 @@ from core.observability.logging_utils import emit_json_log
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
 logger = logging.getLogger("comac.api")
 
-# Initialize shared services
+# Initialize shared services (non-storage)
 ingestion_service = IngestionService()
 retriever_engine = RetrieverEngine()
-notebook_store = NotebookStore()
-source_registry = SourceRegistry()
-note_store = NoteStore()
-chat_history_store = ChatHistoryStore()
-studio_store = StudioStore()
-graph_store = GraphStore()
 graph_extractor = GraphExtractor()
 
-# Gap-A: inject graph signal into the retriever
-retriever_engine.graph_store = graph_store
-retriever_engine.graph_extractor = graph_extractor
+# V4.1-T2: Storage store placeholders — initialized in on_startup (after all imports)
+# Deferred import avoids triggering core.storage.sqlite_db when test_cross_notebook_isolation
+# stubs core.storage as SimpleNamespace (which lacks sqlite_db submodule).
+notebook_store = None
+source_registry = None
+note_store = None
+chat_history_store = None
+studio_store = None
+graph_store = None
 
 
 @app.on_event("startup")
-def recover_ingestion_transactions():
+def on_startup():
+    # V4.1-T2: Deferred imports — avoid triggering sqlite_db when core.storage is stubbed
+    global notebook_store, source_registry, note_store, chat_history_store, studio_store, graph_store
+    from core.storage.sqlite_db import run_migration_if_needed
+    from core.storage.notebook_store import NotebookStore
+    from core.storage.source_registry import SourceRegistry
+    from core.storage.note_store import NoteStore
+    from core.storage.chat_history_store import ChatHistoryStore
+    from core.storage.studio_store import StudioStore
+    from core.storage.graph_store import GraphStore
+
+    # Run JSON → SQLite migration if not yet done
+    result = run_migration_if_needed(
+        base_dir=_DATA_DIR,
+        db_path=_DB_PATH,
+        spaces_dir=DEFAULT_SPACES_DIR,
+    )
+    if result.success and result.version == 1 and result.counts:
+        logger.info(
+            "V4.1-T2 migration complete: %s records migrated in %.1fms",
+            result.counts, result.duration_ms
+        )
+
+    # Initialize storage stores
+    notebook_store = NotebookStore(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
+    source_registry = SourceRegistry(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
+    note_store = NoteStore(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
+    chat_history_store = ChatHistoryStore(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
+    studio_store = StudioStore(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
+    graph_store = GraphStore(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
+
+    # Gap-A: inject graph signal into the retriever
+    retriever_engine.graph_store = graph_store
+    retriever_engine.graph_extractor = graph_extractor
+
+    # Existing: recover ingestion transactions
     for space_id in iter_space_ids():
         recover_incomplete_transactions(
             space_id,

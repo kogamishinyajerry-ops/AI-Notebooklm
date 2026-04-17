@@ -1,12 +1,29 @@
+"""
+core/storage/chat_history_store.py
+=================================
+V4.1-T2: SQLite-backed ChatHistoryStore.
+
+Per-notebook chat messages persisted in data/notebooks.db (chat_messages table).
+MAX_HISTORY=200 FIFO eviction enforced via SQL after each append.
+"""
+
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import List
 
-from core.ingestion.transaction import DEFAULT_SPACES_DIR, resolve_space_path, utc_now_iso
+from core.ingestion.transaction import DEFAULT_SPACES_DIR, utc_now_iso
 from core.models.chat_message import ChatMessage
-from core.storage.json_store import read_json, write_json_atomic
+
+
+def _get_conn(db_path):
+    """Deferred import to avoid breaking test_cross_notebook_isolation."""
+    from core.storage.sqlite_db import get_connection, init_schema
+    conn = get_connection(db_path)
+    init_schema(conn)
+    return conn
 
 # Maximum messages retained per notebook (FIFO eviction beyond this)
 MAX_HISTORY = 200
@@ -14,23 +31,22 @@ MAX_HISTORY = 200
 
 class ChatHistoryStore:
     """
-    JSON-persisted store for per-notebook chat history.
-    Storage: data/spaces/{notebook_id}/chat_history.json
-    Keeps the most recent MAX_HISTORY messages; older entries are evicted.
+    SQLite-persisted store for per-notebook chat history.
+    Storage: data/notebooks.db (chat_messages table)
     """
 
-    def __init__(self, spaces_dir: str | Path = DEFAULT_SPACES_DIR):
+    def __init__(
+        self,
+        db_path: str | Path = Path("data/notebooks.db"),
+        spaces_dir: str | Path = DEFAULT_SPACES_DIR,
+    ):
+        self.db_path = Path(db_path)
         self.spaces_dir = Path(spaces_dir)
 
-    def _path(self, notebook_id: str) -> Path:
-        return resolve_space_path(notebook_id, "chat_history.json", base_dir=self.spaces_dir)
-
-    def _read(self, notebook_id: str) -> List[ChatMessage]:
-        data = read_json(self._path(notebook_id), default=[])
-        return [ChatMessage.from_dict(item) for item in data]
-
-    def _write(self, notebook_id: str, messages: List[ChatMessage]) -> None:
-        write_json_atomic(self._path(notebook_id), [m.to_dict() for m in messages])
+    def _conn(self):
+        conn = _get_conn(self.db_path)
+        conn.execute("PRAGMA foreign_keys=OFF")
+        return conn
 
     def append(
         self,
@@ -49,20 +65,87 @@ class ChatHistoryStore:
             is_fully_verified=is_fully_verified,
             created_at=utc_now_iso(),
         )
-        messages = self._read(notebook_id)
-        messages.append(message)
-        # FIFO eviction — retain only the most recent MAX_HISTORY entries
-        if len(messages) > MAX_HISTORY:
-            messages = messages[-MAX_HISTORY:]
-        self._write(notebook_id, messages)
+        conn = self._conn()
+        try:
+            conn.execute(
+                """INSERT INTO chat_messages
+                   (id, notebook_id, role, content, citations,
+                    is_fully_verified, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    message.id, message.notebook_id, message.role,
+                    message.content,
+                    json.dumps(message.citations, ensure_ascii=False),
+                    int(message.is_fully_verified),
+                    message.created_at,
+                ),
+            )
+
+            # FIFO eviction — delete older messages beyond MAX_HISTORY
+            conn.execute(
+                """DELETE FROM chat_messages
+                   WHERE notebook_id = ? AND id NOT IN (
+                       SELECT id FROM chat_messages
+                       WHERE notebook_id = ?
+                       ORDER BY created_at DESC
+                       LIMIT ?
+                   )""",
+                (notebook_id, notebook_id, MAX_HISTORY),
+            )
+            conn.commit()
+        finally:
+            conn.close()
         return message
 
-    def list_by_notebook(self, notebook_id: str, limit: int = 100) -> List[ChatMessage]:
-        messages = self._read(notebook_id)
-        return messages[-limit:] if limit > 0 else messages
+    def list_by_notebook(
+        self, notebook_id: str, limit: int = 100
+    ) -> List[ChatMessage]:
+        conn = self._conn()
+        try:
+            if limit > 0:
+                # Original: messages[-limit:] on ASC list = limit newest, ASC order
+                # SQLite: get limit newest via DESC, then reverse to ASC
+                rows = conn.execute(
+                    """SELECT * FROM chat_messages
+                       WHERE notebook_id = ?
+                       ORDER BY created_at DESC
+                       LIMIT ?""",
+                    (notebook_id, limit),
+                ).fetchall()
+                rows = list(reversed(rows))
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM chat_messages
+                       WHERE notebook_id = ?
+                       ORDER BY created_at ASC""",
+                    (notebook_id,),
+                ).fetchall()
+            return [self._row_to_message(r) for r in rows]
+        finally:
+            conn.close()
 
     def clear(self, notebook_id: str) -> int:
-        messages = self._read(notebook_id)
-        count = len(messages)
-        self._write(notebook_id, [])
-        return count
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                "DELETE FROM chat_messages WHERE notebook_id = ?",
+                (notebook_id,),
+            )
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
+
+    def _row_to_message(self, row) -> ChatMessage:
+        return ChatMessage(
+            id=row["id"],
+            notebook_id=row["notebook_id"],
+            role=row["role"],
+            content=row["content"],
+            citations=(
+                json.loads(row["citations"])
+                if row["citations"] else []
+            ),
+            is_fully_verified=bool(row["is_fully_verified"]),
+            created_at=row["created_at"],
+        )
