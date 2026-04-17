@@ -72,6 +72,7 @@ class IngestTransaction:
                 "files": [],
                 "vector_ids": [],
                 "params_snapshot": None,
+                "source": None,
                 "graph_node_ids": [],
                 "community_ids": [],
             },
@@ -88,6 +89,7 @@ class IngestTransaction:
         resources.setdefault("files", [])
         resources.setdefault("vector_ids", [])
         resources.setdefault("params_snapshot", None)
+        resources.setdefault("source", None)
         resources.setdefault("graph_node_ids", [])
         resources.setdefault("community_ids", [])
         return resources
@@ -109,6 +111,13 @@ class IngestTransaction:
 
     def record_params_snapshot(self, snapshot_path: str | Path) -> None:
         self.resources["params_snapshot"] = str(snapshot_path)
+        self.flush()
+
+    def record_source(self, notebook_id: str, source_id: str) -> None:
+        self.resources["source"] = {
+            "notebook_id": notebook_id,
+            "source_id": source_id,
+        }
         self.flush()
 
     def flush(self) -> None:
@@ -149,6 +158,13 @@ class IngestTransaction:
         if registry is not None and snapshot_path and Path(snapshot_path).exists():
             try:
                 registry.restore(snapshot_path)
+            except Exception:
+                pass
+
+        source = resources["source"]
+        if registry is not None and source and hasattr(registry, "delete"):
+            try:
+                registry.delete(source["notebook_id"], source["source_id"])
             except Exception:
                 pass
 

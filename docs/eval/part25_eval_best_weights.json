@@ -1,0 +1,839 @@
+{
+  "summary": {
+    "queries": 12,
+    "hit_rate": 0.8333,
+    "top1_hit_rate": 0.8333,
+    "page_hit_rate": 0.6667,
+    "keyword_hit_rate": 0.8333,
+    "mrr": 0.8333,
+    "top_k": 8,
+    "final_k": 5,
+    "expand_graph": true,
+    "rrf_weights": {
+      "semantic": 0.0,
+      "bm25": 0.5,
+      "graph": 0.5
+    },
+    "corpus_chunks": 1062,
+    "query_set": "docs/eval/part25_query_set.json"
+  },
+  "results": [
+    {
+      "query": "失速演示和失速警告有哪些要求？",
+      "hit": true,
+      "page_hit": true,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [
+        1
+      ],
+      "matched_keywords": [
+        "stall warning",
+        "stall demonstration"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 35,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "means as the stall warning for flight in \nnon-icing conditions. \n(c) When the speed is reduced at rates \nnot exceeding one knot per second, \nstall warning must begin, in each nor-\nmal configuration, a"
+        },
+        {
+          "rank": 2,
+          "page": 35,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "235 \nFederal Aviation Administration, DOT § 25.207 \n§ 25.207 Stall warning. \n(a) Stall warning with sufficient mar-\ngin to prevent inadvertent stalling \nwith the flaps and landing gear in any \nnormal "
+        },
+        {
+          "rank": 3,
+          "page": 36,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "(i) One second after the onset of stall \nwarning if stall warning is provided by \nthe same means as for flight in non- \nicing conditions; or \n(ii) Three seconds after the onset of \nstall warning if st"
+        },
+        {
+          "rank": 4,
+          "page": 1,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "stability. \n25.177 Static lateral-directional stability. \n25.181 Dynamic stability. \nS\nTALLS \n25.201 Stall demonstration. \n25.203 Stall characteristics. \n25.207 Stall warning. \nG\nROUND AND WATER HANDL"
+        },
+        {
+          "rank": 5,
+          "page": 16,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "distances prescribed in §§ 25.109 and \n25.125, respectively, must be deter-\nmined with all the airplane wheel \nbrake assemblies at the fully worn \nlimit of their allowable wear range. \n[Doc. No. 5066,"
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 35,
+          "matched_keywords": [
+            "stall warning"
+          ],
+          "text_preview": "means as the stall warning for flight in \nnon-icing conditions. \n(c) When the speed is reduced at rates \nnot exceeding one knot per second, \nstall warning must begin, in each nor-\nmal configuration, a"
+        },
+        {
+          "rank": 2,
+          "page": 35,
+          "matched_keywords": [
+            "stall warning"
+          ],
+          "text_preview": "235 \nFederal Aviation Administration, DOT § 25.207 \n§ 25.207 Stall warning. \n(a) Stall warning with sufficient mar-\ngin to prevent inadvertent stalling \nwith the flaps and landing gear in any \nnormal "
+        },
+        {
+          "rank": 3,
+          "page": 36,
+          "matched_keywords": [
+            "stall warning"
+          ],
+          "text_preview": "(i) One second after the onset of stall \nwarning if stall warning is provided by \nthe same means as for flight in non- \nicing conditions; or \n(ii) Three seconds after the onset of \nstall warning if st"
+        },
+        {
+          "rank": 4,
+          "page": 1,
+          "matched_keywords": [
+            "stall demonstration",
+            "stall warning"
+          ],
+          "text_preview": "stability. \n25.177 Static lateral-directional stability. \n25.181 Dynamic stability. \nS\nTALLS \n25.201 Stall demonstration. \n25.203 Stall characteristics. \n25.207 Stall warning. \nG\nROUND AND WATER HANDL"
+        }
+      ],
+      "note": "Table-of-contents chunk covering the Part 25 stalls section."
+    },
+    {
+      "query": "结构疲劳评估和 LOV 需要满足什么要求？",
+      "hit": true,
+      "page_hit": true,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [
+        72
+      ],
+      "matched_keywords": [
+        "fatigue",
+        "lov",
+        "widespread fatigue damage"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 72,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "272 \n14 CFR Ch. I (1–1–25 Edition) § 25.571 \nsuch that this type of damage could \noccur. An LOV must be established \nthat corresponds to the period of time, \nstated as a number of total accumu-\nlated "
+        },
+        {
+          "rank": 2,
+          "page": 2,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "25.521 General. \n25.523 Design weights and center of gravity \npositions. \n25.525 Application of loads. \n25.527 Hull and main float load factors. \n25.529 Hull and main float landing condi-\ntions. \n25.5"
+        },
+        {
+          "rank": 3,
+          "page": 71,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "in the evaluation. Special consider-\nation for widespread fatigue damage \nmust be included where the design is"
+        },
+        {
+          "rank": 4,
+          "page": 50,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "minimum fuel weight condition for \nshowing compliance with the flight \nload requirements as prescribed in this \nsubpart. In addition— \n(1) The structure must be designed \nfor a condition of zero fuel "
+        },
+        {
+          "rank": 5,
+          "page": 122,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "322 \n14 CFR Ch. I (1–1–25 Edition) § 25.925 \npeaks and resonant conditions, \nthroughout the operational envelope of \nthe airplane by either: \n(1) Measurement of stresses or loads \nthrough direct testi"
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 72,
+          "matched_keywords": [
+            "fatigue",
+            "lov",
+            "widespread fatigue damage"
+          ],
+          "text_preview": "272 \n14 CFR Ch. I (1–1–25 Edition) § 25.571 \nsuch that this type of damage could \noccur. An LOV must be established \nthat corresponds to the period of time, \nstated as a number of total accumu-\nlated "
+        },
+        {
+          "rank": 2,
+          "page": 2,
+          "matched_keywords": [
+            "fatigue"
+          ],
+          "text_preview": "25.521 General. \n25.523 Design weights and center of gravity \npositions. \n25.525 Application of loads. \n25.527 Hull and main float load factors. \n25.529 Hull and main float landing condi-\ntions. \n25.5"
+        },
+        {
+          "rank": 3,
+          "page": 71,
+          "matched_keywords": [
+            "fatigue",
+            "widespread fatigue damage"
+          ],
+          "text_preview": "in the evaluation. Special consider-\nation for widespread fatigue damage \nmust be included where the design is"
+        },
+        {
+          "rank": 4,
+          "page": 50,
+          "matched_keywords": [
+            "fatigue"
+          ],
+          "text_preview": "minimum fuel weight condition for \nshowing compliance with the flight \nload requirements as prescribed in this \nsubpart. In addition— \n(1) The structure must be designed \nfor a condition of zero fuel "
+        },
+        {
+          "rank": 5,
+          "page": 122,
+          "matched_keywords": [
+            "fatigue"
+          ],
+          "text_preview": "322 \n14 CFR Ch. I (1–1–25 Edition) § 25.925 \npeaks and resonant conditions, \nthroughout the operational envelope of \nthe airplane by either: \n(1) Measurement of stresses or loads \nthrough direct testi"
+        }
+      ],
+      "note": null
+    },
+    {
+      "query": "鸟撞损伤的适航要求是什么？",
+      "hit": true,
+      "page_hit": true,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [
+        78
+      ],
+      "matched_keywords": [
+        "bird strike damage",
+        "empennage structure"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 78,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "vestigated need not exceed V\nFC/MFC if it \nis shown, by correlation of the flight \ntest data with other test data or anal-\nyses, that the airplane is free from any \naeroelastic instability at all spee"
+        },
+        {
+          "rank": 2,
+          "page": 2,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "25.631 Bird strike damage. \nC\nONTROL SURFACES \n25.651 Proof of strength. \n25.655 Installation. \n25.657 Hinges. \nC\nONTROL SYSTEMS \n25.671 General. \n25.672 Stability augmentation and auto-\nmatic and pow"
+        },
+        {
+          "rank": 3,
+          "page": 71,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "turing defects, or accidental damage, \nwill be avoided throughout the oper-\national life of the airplane. This eval-\nuation must be conducted in accord-\nance with the provisions of paragraphs \n(b) and"
+        },
+        {
+          "rank": 4,
+          "page": 40,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "amended by Amdt. 25–23, 35 FR 5672, Apr. 8, \n1970] \n§ 25.302 Interaction of systems and \nstructures. \nFor airplanes equipped with systems \nthat affect structural performance, ei-\nther directly or as a"
+        },
+        {
+          "rank": 5,
+          "page": 180,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "the following: \n(1) Information required by §§ 25.1583 \nthrough 25.1587. \n(2) Other information that is nec-\nessary for safe operation because of de-\nsign, operating, or handling character-\nistics. \n("
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 78,
+          "matched_keywords": [
+            "bird strike damage",
+            "empennage structure"
+          ],
+          "text_preview": "vestigated need not exceed V\nFC/MFC if it \nis shown, by correlation of the flight \ntest data with other test data or anal-\nyses, that the airplane is free from any \naeroelastic instability at all spee"
+        },
+        {
+          "rank": 2,
+          "page": 2,
+          "matched_keywords": [
+            "bird strike damage"
+          ],
+          "text_preview": "25.631 Bird strike damage. \nC\nONTROL SURFACES \n25.651 Proof of strength. \n25.655 Installation. \n25.657 Hinges. \nC\nONTROL SYSTEMS \n25.671 General. \n25.672 Stability augmentation and auto-\nmatic and pow"
+        }
+      ],
+      "note": null
+    },
+    {
+      "query": "停车刹车的合规要求是什么？",
+      "hit": true,
+      "page_hit": true,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [
+        86
+      ],
+      "matched_keywords": [
+        "parking brake"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 86,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "promptly and fully applied for at least \n3 minutes, it must be demonstrated \nthat for at least 5 minutes from appli-\ncation of the parking brake, no condi-\ntion occurs (or has occurred during the \nsto"
+        },
+        {
+          "rank": 2,
+          "page": 86,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "(ii) Allow the pilot(s) to override the \nsystem by use of manual braking. \n(d) Parking brake. The airplane must \nhave a parking brake control that, \nwhen selected on, will, without further \nattention,"
+        },
+        {
+          "rank": 3,
+          "page": 86,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "absorption rate derived from the air-\nplane manufacturer’s braking require-\nments must be achieved. The mean de-\nceleration must not be less than 6 fps\n2. \n(3) Most severe landing stop. The most \nseve"
+        },
+        {
+          "rank": 4,
+          "page": 85,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "by Amdt. 25–78, 58 FR 11781, Feb. 26, 1993] \n§ 25.735 Brakes and braking systems. \n(a) Approval. Each assembly con-\nsisting of a wheel(s) and brake(s) must \nbe approved."
+        },
+        {
+          "rank": 5,
+          "page": 85,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "285 \nFederal Aviation Administration, DOT § 25.735 \n(e) Braked wheels. Each braked wheel \nmust meet the applicable requirements \nof § 25.735. \n[Doc. No. 5066, 29 FR 18291, Dec. 24, 1964, as \namended b"
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 86,
+          "matched_keywords": [
+            "parking brake"
+          ],
+          "text_preview": "promptly and fully applied for at least \n3 minutes, it must be demonstrated \nthat for at least 5 minutes from appli-\ncation of the parking brake, no condi-\ntion occurs (or has occurred during the \nsto"
+        },
+        {
+          "rank": 2,
+          "page": 86,
+          "matched_keywords": [
+            "parking brake"
+          ],
+          "text_preview": "(ii) Allow the pilot(s) to override the \nsystem by use of manual braking. \n(d) Parking brake. The airplane must \nhave a parking brake control that, \nwhen selected on, will, without further \nattention,"
+        },
+        {
+          "rank": 3,
+          "page": 86,
+          "matched_keywords": [
+            "parking brake"
+          ],
+          "text_preview": "absorption rate derived from the air-\nplane manufacturer’s braking require-\nments must be achieved. The mean de-\nceleration must not be less than 6 fps\n2. \n(3) Most severe landing stop. The most \nseve"
+        }
+      ],
+      "note": null
+    },
+    {
+      "query": "紧急撤离和紧急出口要满足哪些要求？",
+      "hit": true,
+      "page_hit": false,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [],
+      "matched_keywords": [
+        "emergency exits"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 92,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "tremely improbable. This must be \nshown by safety analysis. \n(3) Each element of each door oper-\nating system must be designed or, \nwhere impracticable, distinctively and \npermanently marked, to minim"
+        },
+        {
+          "rank": 2,
+          "page": 104,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "(1) The door, integral stair, and oper-\nating mechanism have been subjected \nto the inertia forces specified in \n§ 25.561(b)(3), acting separately relative \nto the surrounding structure. \n(2) The airp"
+        },
+        {
+          "rank": 3,
+          "page": 70,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "270 \n14 CFR Ch. I (1–1–25 Edition) § 25.562 \nsubsequent rapid evacuation of occu-\npants. \n[Doc. No. 5066, 29 FR 18291, Dec. 24, 1964, as \namended by Amdt. 25–23, 35 FR 5673, Apr. 8, \n1970; Amdt. 25–64"
+        },
+        {
+          "rank": 4,
+          "page": 96,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "areas must be designed to resist forc-\nible intrusion by unauthorized persons \nand be capable of withstanding impacts \nof 300 joules (221.3 foot pounds). \n(2) The bulkhead, door, and any other \naccess"
+        },
+        {
+          "rank": 5,
+          "page": 115,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "amended by Amdt. 25–116, 69 FR 62788, Oct. \n27, 2004] \n§ 25.854 Lavatory fire protection. \nFor airplanes with a passenger capac-\nity of 20 or more: \n(a) Each lavatory must be equipped \nwith a smoke de"
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 92,
+          "matched_keywords": [
+            "emergency exits"
+          ],
+          "text_preview": "tremely improbable. This must be \nshown by safety analysis. \n(3) Each element of each door oper-\nating system must be designed or, \nwhere impracticable, distinctively and \npermanently marked, to minim"
+        }
+      ],
+      "note": null
+    },
+    {
+      "query": "下舱服务舱的紧急疏散路线要求是什么？",
+      "hit": false,
+      "page_hit": false,
+      "keyword_hit": false,
+      "first_hit_rank": null,
+      "reciprocal_rank": 0.0,
+      "matched_pages": [],
+      "matched_keywords": [],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 107,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "and location of exits on both sides of \nthe cabin need not be symmetrical. If \nonly one floor level exit per side is pre-\nscribed, and the airplane does not have \na tailcone or ventral emergency exit,"
+        },
+        {
+          "rank": 2,
+          "page": 103,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "sistant surface. Except where a means \nfor channeling the flow of evacuees is \nprovided— \n(1) The escape route from each Type \nA or Type B passenger emergency exit, \nor any common escape route from tw"
+        },
+        {
+          "rank": 3,
+          "page": 167,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "to safety of flight or required during \nemergency conditions."
+        },
+        {
+          "rank": 4,
+          "page": 104,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "304 \n14 CFR Ch. I (1–1–25 Edition) § 25.811 \n(3) The assisting means provided for \neach escape route leading from a Type \nA or B emergency exit must be capable \nof carrying simultaneously two par-\nall"
+        },
+        {
+          "rank": 5,
+          "page": 102,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "the airplane and the time the exit is \nfully opened. However, each passenger \nemergency exit which is also a pas-\nsenger entrance door or a service door \nmust be provided with means to pre-\nvent deplo"
+        }
+      ],
+      "hits": [],
+      "note": null
+    },
+    {
+      "query": "燃油箱通气和燃油箱出口有哪些要求？",
+      "hit": false,
+      "page_hit": false,
+      "keyword_hit": false,
+      "first_hit_rank": null,
+      "reciprocal_rank": 0.0,
+      "matched_pages": [],
+      "matched_keywords": [],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 135,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "is installed at an oil tank outlet, must \nincorporate an indicator that will indi-\ncate contamination before it reaches \nthe capacity established in accordance \nwith paragraph (a)(2) of this section. "
+        },
+        {
+          "rank": 2,
+          "page": 134,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "the engine under the same conditions, \nplus a suitable margin to ensure sys-\ntem circulation. Instead of a rational \nanalysis of airplane range for the pur-\npose of computing oil requirements for \nrec"
+        },
+        {
+          "rank": 3,
+          "page": 110,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "outside without the aid of special tools. \n[Doc. No. 2003–14193, 69 FR 24502, May 3, 2004] \nVENTILATION AND HEATING \n§ 25.831 Ventilation. \n(a) Under normal operating condi-\ntions and in the event of "
+        },
+        {
+          "rank": 4,
+          "page": 118,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "been shut off by the automatic means \nprescribed in paragraph (e)(1) of this \nsection. \n(f) Air intakes. Each combustion and \nventilating air intake must be located \nso that no flammable fluids or vap"
+        },
+        {
+          "rank": 5,
+          "page": 117,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "the ventilating airstream. \n(c) Combustion air ducts. Each com-\nbustion air duct must be fireproof for a \ndistance great enough to prevent dam-\nage from backfiring or reverse flame \npropagation. In ad"
+        }
+      ],
+      "hits": [],
+      "note": null
+    },
+    {
+      "query": "电气电子系统的防雷要求是什么？",
+      "hit": true,
+      "page_hit": true,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [
+        152
+      ],
+      "matched_keywords": [
+        "lightning protection"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 152,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "352 \n14 CFR Ch. I (1–1–25 Edition) § 25.1316 \nconsistent with safety in the kinds of \noperation authorized. Loads not re-\nquired in controlled flight need not be \nconsidered for the two-engine-inoper-"
+        },
+        {
+          "rank": 2,
+          "page": 119,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "fire-resistant. \n(b) Paragraph (a) of this section does \nnot apply to tail surfaces to the rear of \nthe nacelles that could not be readily \naffected by heat, flames, or sparks \ncoming from a designate"
+        },
+        {
+          "rank": 3,
+          "page": 119,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "most severe ice impact likely to occur. \n§ 25.899 Electrical bonding and protec-\ntion against static electricity. \n(a) Electrical bonding and protection \nagainst static electricity must be de-\nsigned "
+        },
+        {
+          "rank": 4,
+          "page": 161,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "§ 25.1362 Electrical supplies for emer-\ngency conditions. \nA suitable electrical supply must be \nprovided to those services required for \nemergency procedures after an emer-\ngency landing or ditching."
+        },
+        {
+          "rank": 5,
+          "page": 120,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "320 \n14 CFR Ch. I (1–1–25 Edition) § 25.901 \nas not to endanger the airplane, per-\nsonnel, or operation of the installed \nelectrical/electronic systems. \n[Amdt. 25–123, 72 FR 63405, Nov. 8, 2007] \nSub"
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 152,
+          "matched_keywords": [
+            "lightning protection"
+          ],
+          "text_preview": "352 \n14 CFR Ch. I (1–1–25 Edition) § 25.1316 \nconsistent with safety in the kinds of \noperation authorized. Loads not re-\nquired in controlled flight need not be \nconsidered for the two-engine-inoper-"
+        }
+      ],
+      "note": null
+    },
+    {
+      "query": "液压系统试验和压力约束有哪些要求？",
+      "hit": true,
+      "page_hit": true,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [
+        169
+      ],
+      "matched_keywords": [
+        "hydraulic system"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 169,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "port or validate element design. \n(3) The complete hydraulic system(s) \nmust be functionally tested on the air-\nplane in normal operation over the \nrange of motion of all associated user \nsystems. The"
+        },
+        {
+          "rank": 2,
+          "page": 124,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "1990; Amdt. 25–115, 69 FR 40527, July 2, 2004] \nFUEL SYSTEM \n§ 25.951 General. \n(a) Each fuel system must be con-\nstructed and arranged to ensure a flow \nof fuel at a rate and pressure estab-\nlished f"
+        },
+        {
+          "rank": 3,
+          "page": 113,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "(a) Strength test. The complete pres-\nsurized cabin, including doors, win-\ndows, and valves, must be tested as a \npressure vessel for the pressure dif-\nferential specified in § 25.365(d). \n(b) Functio"
+        },
+        {
+          "rank": 4,
+          "page": 155,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "into the atmosphere. A proof test must \nbe conducted to demonstrate the integ-\nrity of the static pressure system in \nthe following manner: \n(i) Unpressurized airplanes. Evacuate \nthe static pressure "
+        },
+        {
+          "rank": 5,
+          "page": 168,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "4. All other elements ......................... 1.5 2.0 \n(2) Withstand, without deformation \nthat would prevent it from performing \nits intended function, the design oper-\nating pressure in combinatio"
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 169,
+          "matched_keywords": [
+            "hydraulic system"
+          ],
+          "text_preview": "port or validate element design. \n(3) The complete hydraulic system(s) \nmust be functionally tested on the air-\nplane in normal operation over the \nrange of motion of all associated user \nsystems. The"
+        }
+      ],
+      "note": null
+    },
+    {
+      "query": "襟翼放出速度 VFE 应如何建立？",
+      "hit": true,
+      "page_hit": true,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [
+        176
+      ],
+      "matched_keywords": [
+        "flap extended speed",
+        "vfe"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 176,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "A deter-\nmined under § 25.335(c). \n§ 25.1511 Flap extended speed. \nThe established flap extended speed \nVFE must be established so that it does \nnot exceed the design flap speed VF \nchosen under §§ 25"
+        },
+        {
+          "rank": 2,
+          "page": 33,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "(5) The airplane trimmed at 1.3 V\nSR0 \nwith power or thrust off. \n[Doc. No. 5066, 29 FR 18291, Dec. 24, 1964, as \namended by Amdt. 25–7, 30 FR 13117, Oct. 15, \n1965; Amdt. 25–108, 67 FR 70827, Nov. 26"
+        },
+        {
+          "rank": 3,
+          "page": 154,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "tion must be determined— \n(1) From 0.8 of the minimum value of \nV\n1 to the maximum value of V2, consid-\nering the approved ranges of altitude \nand weight; and \n(2) With the flaps and power settings \nc"
+        },
+        {
+          "rank": 4,
+          "page": 31,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "suitable stability and control feel \n(static stability) is required in any con-\ndition normally encountered in service, \nif flight tests show it is necessary for \nsafe operation. \n[Doc. No. 5066, 29 F"
+        },
+        {
+          "rank": 5,
+          "page": 47,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "effects must not less than 0.07M unless \na lower margin is determined using a \nrational analysis that includes the ef-\nfects of any automatic systems. In any \ncase, the margin may not be reduced to \nl"
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 176,
+          "matched_keywords": [
+            "flap extended speed",
+            "vfe"
+          ],
+          "text_preview": "A deter-\nmined under § 25.335(c). \n§ 25.1511 Flap extended speed. \nThe established flap extended speed \nVFE must be established so that it does \nnot exceed the design flap speed VF \nchosen under §§ 25"
+        },
+        {
+          "rank": 2,
+          "page": 33,
+          "matched_keywords": [
+            "vfe"
+          ],
+          "text_preview": "(5) The airplane trimmed at 1.3 V\nSR0 \nwith power or thrust off. \n[Doc. No. 5066, 29 FR 18291, Dec. 24, 1964, as \namended by Amdt. 25–7, 30 FR 13117, Oct. 15, \n1965; Amdt. 25–108, 67 FR 70827, Nov. 26"
+        },
+        {
+          "rank": 3,
+          "page": 154,
+          "matched_keywords": [
+            "vfe"
+          ],
+          "text_preview": "tion must be determined— \n(1) From 0.8 of the minimum value of \nV\n1 to the maximum value of V2, consid-\nering the approved ranges of altitude \nand weight; and \n(2) With the flaps and power settings \nc"
+        }
+      ],
+      "note": null
+    },
+    {
+      "query": "EWIS 的功能和安装要求是什么？",
+      "hit": true,
+      "page_hit": true,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [
+        183
+      ],
+      "matched_keywords": [
+        "ewis"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 183,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "motors, and transformers. \n(12) § 25.1431(c) and (d) Electronic \nequipment. \n§ 25.1707 System separation: EWIS. \n(a) Each EWIS must be designed and \ninstalled with adequate physical sepa-\nration from "
+        },
+        {
+          "rank": 2,
+          "page": 186,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "386 \n14 CFR Ch. I (1–1–25 Edition) § 25.1723 \n§ 25.1723 Flammable fluid fire protec-\ntion: EWIS. \nEWIS components located in each \narea where flammable fluid or vapors \nmight escape by leakage of a fl"
+        },
+        {
+          "rank": 3,
+          "page": 184,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "nents, so that: \n(1) An EWIS component failure will \nnot create a hazardous condition. \n(2) Any fuel leakage onto EWIS com-\nponents will not create a hazardous \ncondition. \n(f) Except to the extent ne"
+        },
+        {
+          "rank": 4,
+          "page": 184,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "EWIS must be designed and installed \nwith adequate physical separation from \nwater/waste lines and other water/ \nwaste system components, so that: \n(1) An EWIS component failure will \nnot create a haz"
+        },
+        {
+          "rank": 5,
+          "page": 185,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "quired by paragraphs (a) and (b) of this \nsection must remain legible through-\nout the expected service life of the \nEWIS component. \n(d) The means used for identifying \neach EWIS component as require"
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 183,
+          "matched_keywords": [
+            "ewis"
+          ],
+          "text_preview": "motors, and transformers. \n(12) § 25.1431(c) and (d) Electronic \nequipment. \n§ 25.1707 System separation: EWIS. \n(a) Each EWIS must be designed and \ninstalled with adequate physical sepa-\nration from "
+        },
+        {
+          "rank": 2,
+          "page": 186,
+          "matched_keywords": [
+            "ewis"
+          ],
+          "text_preview": "386 \n14 CFR Ch. I (1–1–25 Edition) § 25.1723 \n§ 25.1723 Flammable fluid fire protec-\ntion: EWIS. \nEWIS components located in each \narea where flammable fluid or vapors \nmight escape by leakage of a fl"
+        },
+        {
+          "rank": 3,
+          "page": 184,
+          "matched_keywords": [
+            "ewis"
+          ],
+          "text_preview": "nents, so that: \n(1) An EWIS component failure will \nnot create a hazardous condition. \n(2) Any fuel leakage onto EWIS com-\nponents will not create a hazardous \ncondition. \n(f) Except to the extent ne"
+        },
+        {
+          "rank": 4,
+          "page": 184,
+          "matched_keywords": [
+            "ewis"
+          ],
+          "text_preview": "EWIS must be designed and installed \nwith adequate physical separation from \nwater/waste lines and other water/ \nwaste system components, so that: \n(1) An EWIS component failure will \nnot create a haz"
+        },
+        {
+          "rank": 5,
+          "page": 185,
+          "matched_keywords": [
+            "ewis"
+          ],
+          "text_preview": "quired by paragraphs (a) and (b) of this \nsection must remain legible through-\nout the expected service life of the \nEWIS component. \n(d) The means used for identifying \neach EWIS component as require"
+        }
+      ],
+      "note": null
+    },
+    {
+      "query": "连续结冰条件下降和进近构型需要考虑什么？",
+      "hit": true,
+      "page_hit": false,
+      "keyword_hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "matched_pages": [],
+      "matched_keywords": [
+        "icing conditions"
+      ],
+      "top_results": [
+        {
+          "rank": 1,
+          "page": 280,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "normally protected surfaces before activa-\ntion and effective operation of the ice pro-\ntection system in the icing conditions de-\nfined in part I of this Appendix. This ice ac-\ncretion only applies i"
+        },
+        {
+          "rank": 2,
+          "page": 201,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "occurring between the end of the takeoff dis-\ntance and 400 feet above the takeoff surface, \nassuming accretion starts at the end of the \ntakeoff distance in the takeoff maximum \nicing conditions defi"
+        },
+        {
+          "rank": 3,
+          "page": 166,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "the airframe ice protection system \nneed not be operated during specific \nphases of flight, the requirements of \nparagraph (e) of this section are appli-\ncable to all phases of flight. \n(g) After the "
+        },
+        {
+          "rank": 4,
+          "page": 280,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "parts, the ice accretion for the takeoff phase \nmust be determined for the icing conditions \ndefined in part I of this Appendix, using the \nfollowing assumptions: \n(i) The airfoils, control surfaces, "
+        },
+        {
+          "rank": 5,
+          "page": 201,
+          "source": "FAA_Part25.pdf",
+          "text_preview": "ating procedure provided in the Airplane \nFlight Manual, except that after beginning \nthe takeoff roll, it must be assumed that the \ncrew takes no action to activate the ice pro-\ntection system until "
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "page": 280,
+          "matched_keywords": [
+            "icing conditions"
+          ],
+          "text_preview": "normally protected surfaces before activa-\ntion and effective operation of the ice pro-\ntection system in the icing conditions de-\nfined in part I of this Appendix. This ice ac-\ncretion only applies i"
+        },
+        {
+          "rank": 2,
+          "page": 201,
+          "matched_keywords": [
+            "icing conditions"
+          ],
+          "text_preview": "occurring between the end of the takeoff dis-\ntance and 400 feet above the takeoff surface, \nassuming accretion starts at the end of the \ntakeoff distance in the takeoff maximum \nicing conditions defi"
+        },
+        {
+          "rank": 4,
+          "page": 280,
+          "matched_keywords": [
+            "icing conditions"
+          ],
+          "text_preview": "parts, the ice accretion for the takeoff phase \nmust be determined for the icing conditions \ndefined in part I of this Appendix, using the \nfollowing assumptions: \n(i) The airfoils, control surfaces, "
+        },
+        {
+          "rank": 5,
+          "page": 201,
+          "matched_keywords": [
+            "icing conditions"
+          ],
+          "text_preview": "ating procedure provided in the Airplane \nFlight Manual, except that after beginning \nthe takeoff roll, it must be assumed that the \ncrew takes no action to activate the ice pro-\ntection system until "
+        }
+      ],
+      "note": null
+    }
+  ]
+}

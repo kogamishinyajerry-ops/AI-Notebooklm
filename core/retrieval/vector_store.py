@@ -38,17 +38,69 @@ class VectorStoreAdapter:
         )
         return ids
 
-    def delete(self, ids: list[str]):
-        """Deletes documents by id for transaction rollback."""
-        if ids:
-            self.collection.delete(ids=ids)
+    def delete(self, ids: list[str] | None = None, where: dict | None = None):
+        """Deletes documents by id or metadata filter for cleanup."""
+        if ids or where:
+            self.collection.delete(ids=ids, where=where)
 
-    def query(self, query_embeddings: list[float], top_k: int = 5):
+    def query(
+        self,
+        query_embeddings: list[float],
+        top_k: int = 5,
+        where: dict | None = None,
+    ):
         """
         Queries the store for the most relevant chunks.
+
+        Args:
+            query_embeddings: Embedding vector for the query.
+            top_k: Number of results to return.
+            where: Optional ChromaDB metadata filter, e.g.
+                   ``{"source_id": {"$in": ["id1", "id2"]}}``
         """
-        results = self.collection.query(
-            query_embeddings=[query_embeddings],
-            n_results=top_k
-        )
+        kwargs: dict = {
+            "query_embeddings": [query_embeddings],
+            "n_results": top_k,
+        }
+        if where:
+            kwargs["where"] = where
+        results = self.collection.query(**kwargs)
         return results
+
+    def get_by_ids(self, ids: list[str]) -> dict:
+        """
+        Fetch documents and metadata by exact Chroma IDs.
+
+        Used by RetrieverEngine._graph_expand() to retrieve real chunk content
+        from the knowledge-graph reverse-index.  Returns a dict with keys
+        ``documents`` (list[str]) and ``metadatas`` (list[dict]).
+
+        Missing IDs are silently omitted by Chroma; callers must handle an
+        empty result gracefully.
+
+        C1 compliant — local Chroma call only, no external network access.
+        """
+        if not ids:
+            return {"documents": [], "metadatas": []}
+        result = self.collection.get(ids=ids, include=["documents", "metadatas"])
+        return {
+            "documents": result.get("documents") or [],
+            "metadatas": result.get("metadatas") or [],
+        }
+
+    def get_all(self, where: dict | None = None) -> dict:
+        """
+        Fetch all documents and metadata, optionally filtered by metadata.
+
+        Primarily used by evaluation tooling to rebuild lexical indexes or
+        compute notebook-scoped diagnostics without going through ANN search.
+        """
+        kwargs: dict = {"include": ["documents", "metadatas"]}
+        if where:
+            kwargs["where"] = where
+        result = self.collection.get(**kwargs)
+        return {
+            "ids": result.get("ids") or [],
+            "documents": result.get("documents") or [],
+            "metadatas": result.get("metadatas") or [],
+        }

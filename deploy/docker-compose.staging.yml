@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  notebooklm-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: comac/notebooklm:v4.0-staging
+    container_name: comac_notebooklm_staging
+    env_file:
+      - ./staging.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - uvicorn
+      - apps.api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -1,0 +1,146 @@
+{
+  "summary": {
+    "query_set": "docs/eval/part25_query_set.json",
+    "corpus_chunks": 1062,
+    "candidates": 6,
+    "best_weights": {
+      "semantic": 0.0,
+      "bm25": 0.5,
+      "graph": 0.5
+    },
+    "best_mrr": 0.8333,
+    "best_hit_rate": 0.8333,
+    "top_k": 8,
+    "final_k": 5,
+    "step": 0.5,
+    "expand_graph": true
+  },
+  "rankings": [
+    {
+      "weights": {
+        "semantic": 0.0,
+        "bm25": 0.5,
+        "graph": 0.5
+      },
+      "queries": 12,
+      "hit_rate": 0.8333,
+      "top1_hit_rate": 0.8333,
+      "page_hit_rate": 0.6667,
+      "keyword_hit_rate": 0.8333,
+      "mrr": 0.8333,
+      "top_k": 8,
+      "final_k": 5,
+      "expand_graph": true,
+      "rrf_weights": {
+        "semantic": 0.0,
+        "bm25": 0.5,
+        "graph": 0.5
+      }
+    },
+    {
+      "weights": {
+        "semantic": 0.0,
+        "bm25": 1.0,
+        "graph": 0.0
+      },
+      "queries": 12,
+      "hit_rate": 0.8333,
+      "top1_hit_rate": 0.8333,
+      "page_hit_rate": 0.6667,
+      "keyword_hit_rate": 0.8333,
+      "mrr": 0.8333,
+      "top_k": 8,
+      "final_k": 5,
+      "expand_graph": true,
+      "rrf_weights": {
+        "semantic": 0.0,
+        "bm25": 1.0,
+        "graph": 0.0
+      }
+    },
+    {
+      "weights": {
+        "semantic": 0.5,
+        "bm25": 0.5,
+        "graph": 0.0
+      },
+      "queries": 12,
+      "hit_rate": 0.8333,
+      "top1_hit_rate": 0.8333,
+      "page_hit_rate": 0.6667,
+      "keyword_hit_rate": 0.8333,
+      "mrr": 0.8333,
+      "top_k": 8,
+      "final_k": 5,
+      "expand_graph": true,
+      "rrf_weights": {
+        "semantic": 0.5,
+        "bm25": 0.5,
+        "graph": 0.0
+      }
+    },
+    {
+      "weights": {
+        "semantic": 0.0,
+        "bm25": 0.0,
+        "graph": 1.0
+      },
+      "queries": 12,
+      "hit_rate": 0.75,
+      "top1_hit_rate": 0.75,
+      "page_hit_rate": 0.4167,
+      "keyword_hit_rate": 0.75,
+      "mrr": 0.75,
+      "top_k": 8,
+      "final_k": 5,
+      "expand_graph": true,
+      "rrf_weights": {
+        "semantic": 0.0,
+        "bm25": 0.0,
+        "graph": 1.0
+      }
+    },
+    {
+      "weights": {
+        "semantic": 0.5,
+        "bm25": 0.0,
+        "graph": 0.5
+      },
+      "queries": 12,
+      "hit_rate": 0.75,
+      "top1_hit_rate": 0.75,
+      "page_hit_rate": 0.4167,
+      "keyword_hit_rate": 0.75,
+      "mrr": 0.75,
+      "top_k": 8,
+      "final_k": 5,
+      "expand_graph": true,
+      "rrf_weights": {
+        "semantic": 0.5,
+        "bm25": 0.0,
+        "graph": 0.5
+      }
+    },
+    {
+      "weights": {
+        "semantic": 1.0,
+        "bm25": 0.0,
+        "graph": 0.0
+      },
+      "queries": 12,
+      "hit_rate": 0.75,
+      "top1_hit_rate": 0.75,
+      "page_hit_rate": 0.4167,
+      "keyword_hit_rate": 0.75,
+      "mrr": 0.75,
+      "top_k": 8,
+      "final_k": 5,
+      "expand_graph": true,
+      "rrf_weights": {
+        "semantic": 1.0,
+        "bm25": 0.0,
+        "graph": 0.0
+      }
+    }
+  ]
+}

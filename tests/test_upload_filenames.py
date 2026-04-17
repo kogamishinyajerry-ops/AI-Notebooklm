@@ -1,5 +1,13 @@
+import sys
+
 import pytest
 from io import BytesIO
+
+# Other test modules stub ``services`` / ``services.ingestion`` at import time.
+# Evict those collection-time stubs here so this file always imports the real
+# upload filename helpers regardless of pytest module ordering.
+for _name in ("services.ingestion.filenames", "services.ingestion", "services"):
+    sys.modules.pop(_name, None)
 
 from services.ingestion.filenames import (
     safe_upload_filename,

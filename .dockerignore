@@ -1,0 +1,10 @@
+.git
+.gitignore
+.notion-cache
+.pytest_cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+data/
+server_*.log
