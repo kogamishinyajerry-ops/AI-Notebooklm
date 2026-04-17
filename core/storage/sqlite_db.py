@@ -212,7 +212,7 @@ def _insert_notebooks(conn: sqlite3.Connection, data: List[Dict]) -> int:
 def _insert_notes(conn: sqlite3.Connection, notebook_id: str, items: List[Dict]) -> int:
     count = 0
     for item in items:
-        conn.execute(
+        cursor = conn.execute(
             """INSERT OR IGNORE INTO notes
                (id, notebook_id, title, content, citations, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -222,7 +222,9 @@ def _insert_notes(conn: sqlite3.Connection, notebook_id: str, items: List[Dict])
                 item["created_at"], item["updated_at"],
             ),
         )
-        if conn.total_changes > 0:
+        # rowcount == 1 means the row was actually inserted;
+        # rowcount == 0 (or -1) means INSERT OR IGNORE skipped it (duplicate PK)
+        if cursor.rowcount == 1:
             count += 1
     return count
 
@@ -230,7 +232,7 @@ def _insert_notes(conn: sqlite3.Connection, notebook_id: str, items: List[Dict])
 def _insert_sources(conn: sqlite3.Connection, notebook_id: str, items: List[Dict]) -> int:
     count = 0
     for item in items:
-        conn.execute(
+        cursor = conn.execute(
             """INSERT OR IGNORE INTO sources
                (id, notebook_id, filename, file_path, status, page_count,
                 chunk_count, created_at, updated_at, error_message)
@@ -243,7 +245,7 @@ def _insert_sources(conn: sqlite3.Connection, notebook_id: str, items: List[Dict
                 item.get("error_message"),
             ),
         )
-        if conn.total_changes > 0:
+        if cursor.rowcount == 1:
             count += 1
     return count
 
@@ -253,7 +255,7 @@ def _insert_chat_messages(
 ) -> int:
     count = 0
     for item in items:
-        conn.execute(
+        cursor = conn.execute(
             """INSERT OR IGNORE INTO chat_messages
                (id, notebook_id, role, content, citations,
                 is_fully_verified, created_at)
@@ -265,7 +267,7 @@ def _insert_chat_messages(
                 item["created_at"],
             ),
         )
-        if conn.total_changes > 0:
+        if cursor.rowcount == 1:
             count += 1
     return count
 
@@ -275,7 +277,7 @@ def _insert_studio_outputs(
 ) -> int:
     count = 0
     for item in items:
-        conn.execute(
+        cursor = conn.execute(
             """INSERT OR IGNORE INTO studio_outputs
                (id, notebook_id, output_type, title, content, citations, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -286,7 +288,7 @@ def _insert_studio_outputs(
                 item["created_at"],
             ),
         )
-        if conn.total_changes > 0:
+        if cursor.rowcount == 1:
             count += 1
     return count
 
