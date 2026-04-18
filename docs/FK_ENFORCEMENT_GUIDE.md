@@ -22,9 +22,6 @@ touch retrieval behavior.
 | `notebooks.id` | `studio_outputs.notebook_id` | `notebook_id` | `ON DELETE CASCADE` |
 | `notebooks.id` | `knowledge_graphs.notebook_id` | `notebook_id` | `ON DELETE CASCADE` |
 
-There is no `spaces` table and no `source_chunks` table in the current SQLite
-schema, so T5 does not define FK behavior for those names.
-
 ## Runtime Behavior
 
 Every connection returned by `core.storage.sqlite_db.get_connection()` enables:
