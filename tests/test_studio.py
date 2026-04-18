@@ -44,6 +44,33 @@ def _patch_transaction():
     mod.summarize_transaction_health = MagicMock(return_value={})
 
 
+def _seed_notebooks(db_path: Path, notebook_ids: tuple[str, ...]) -> None:
+    from core.storage.sqlite_db import get_connection, init_schema
+
+    conn = get_connection(db_path)
+    init_schema(conn)
+    try:
+        for notebook_id in notebook_ids:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO notebooks
+                    (id, name, created_at, updated_at, source_count, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notebook_id,
+                    f"Notebook {notebook_id}",
+                    "2026-04-16T00:00:00Z",
+                    "2026-04-16T00:00:00Z",
+                    0,
+                    None,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 _REAL_MODULES = (
     "core.storage.studio_store", "core.storage.note_store",
     "core.storage.chat_history_store",
@@ -54,11 +81,12 @@ _PARENT_PACKAGES = ("core.storage", "core.models")
 
 
 @pytest.fixture(autouse=True)
-def _evict_stubs():
+def _evict_stubs(tmp_path):
     for name in _REAL_MODULES + _PARENT_PACKAGES:
         sys.modules.pop(name, None)
     sys.modules.pop("core.ingestion.transaction", None)
     _patch_transaction()
+    _seed_notebooks(tmp_path / "notebooks.db", ("nb-1", "nb-a", "nb-b"))
     yield
     for name in _REAL_MODULES + _PARENT_PACKAGES:
         sys.modules.pop(name, None)

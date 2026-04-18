@@ -90,6 +90,11 @@ def _insert_orphan_graph(conn, notebook_id: str = "ghost-graph") -> None:
 
 @pytest.fixture(autouse=True)
 def _stub_transaction_module(tmp_path):
+    for name in list(sys.modules):
+        if name == "core.storage" or name.startswith("core.storage."):
+            sys.modules.pop(name, None)
+        if name == "core.models" or name.startswith("core.models."):
+            sys.modules.pop(name, None)
     sys.modules.pop("core.ingestion.transaction", None)
     transaction_mod = types.ModuleType("core.ingestion.transaction")
     transaction_mod.DEFAULT_SPACES_DIR = tmp_path / "spaces"
@@ -97,6 +102,11 @@ def _stub_transaction_module(tmp_path):
     transaction_mod.utc_now_iso = lambda: "2026-04-18T00:00:00+00:00"
     sys.modules["core.ingestion.transaction"] = transaction_mod
     yield
+    for name in list(sys.modules):
+        if name == "core.storage" or name.startswith("core.storage."):
+            sys.modules.pop(name, None)
+        if name == "core.models" or name.startswith("core.models."):
+            sys.modules.pop(name, None)
     sys.modules.pop("core.ingestion.transaction", None)
 
 

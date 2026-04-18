@@ -9,6 +9,32 @@ from core.storage.notebook_store import NotebookStore
 from core.storage.source_registry import SourceRegistry
 
 
+def _seed_notebook(db_path, notebook_id: str) -> None:
+    from core.storage.sqlite_db import get_connection, init_schema
+
+    conn = get_connection(db_path)
+    init_schema(conn)
+    try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO notebooks
+                (id, name, created_at, updated_at, source_count, owner_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                notebook_id,
+                f"Notebook {notebook_id}",
+                "2026-04-18T00:00:00Z",
+                "2026-04-18T00:00:00Z",
+                0,
+                None,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def test_create_list_and_delete_notebook(tmp_path):
     store = NotebookStore(db_path=tmp_path / "notebooks.db", spaces_dir=tmp_path / "spaces")
 
@@ -25,7 +51,10 @@ def test_create_list_and_delete_notebook(tmp_path):
 
 
 def test_source_registry_lifecycle_and_notebook_isolation(tmp_path):
-    registry = SourceRegistry(db_path=tmp_path / "notebooks.db", spaces_dir=tmp_path / "spaces")
+    db_path = tmp_path / "notebooks.db"
+    _seed_notebook(db_path, "notebook-a")
+    _seed_notebook(db_path, "notebook-b")
+    registry = SourceRegistry(db_path=db_path, spaces_dir=tmp_path / "spaces")
 
     source_a = registry.register("notebook-a", "a.pdf", "data/spaces/notebook-a/docs/a.pdf")
     source_b = registry.register("notebook-b", "b.pdf", "data/spaces/notebook-b/docs/b.pdf")
