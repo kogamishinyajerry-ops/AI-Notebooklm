@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.ingestion.transaction import DEFAULT_SPACES_DIR, iter_space_ids
+from core.storage.migrations import apply_pending
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +176,7 @@ END;
 def init_schema(conn: sqlite3.Connection) -> None:
     """Run all CREATE TABLE IF NOT EXISTS DDL."""
     conn.executescript(_SCHEMA_SQL)
+    apply_pending(conn)
     conn.commit()
 
 
