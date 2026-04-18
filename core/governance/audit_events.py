@@ -20,3 +20,4 @@ class AuditEvent(str, Enum):
     QUOTA_DENIED = "quota.denied"
     AUTH_DENIED = "auth.denied"
     INTEGRITY_REPAIR = "integrity.repair"
+    ADMIN_ACCESS = "admin.access"

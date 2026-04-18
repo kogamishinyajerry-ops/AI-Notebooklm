@@ -132,6 +132,9 @@ def on_startup():
     if audit_logger is None:
         audit_logger = AuditLogger(db_path=_DB_PATH)
     app.state.audit_logger = audit_logger
+    app.state.upload_quota = upload_quota
+    app.state.notebook_cap = notebook_cap
+    app.state.audit_store = audit_logger.store
     setup_rate_limit(app)
 
     # Gap-A: inject graph signal into the retriever
@@ -190,6 +193,10 @@ async def add_request_observability(request: Request, call_next):
 # Mount static files
 static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
 app.mount("/static", StaticFiles(directory=static_path), name="static")
+
+# V4.2-T3: admin read-only endpoints (require_admin-gated).
+from apps.api.admin_routes import router as admin_router
+app.include_router(admin_router)
 
 @app.get("/")
 async def read_index():
