@@ -91,6 +91,9 @@ limiter = Limiter(key_func=_principal_key, default_limits=[])
 
 
 def setup_rate_limit(app: FastAPI) -> None:
+    # Each process starts with a fresh in-memory bucket store. Resetting during setup
+    # keeps repeated app construction in tests from leaking counters across app instances.
+    limiter._storage.reset()
     app.state.limiter = limiter
 
     if not getattr(app.state, "_rate_limit_handler_registered", False):
@@ -114,4 +117,3 @@ def setup_rate_limit(app: FastAPI) -> None:
             effective_chat_rate=effective_chat_rate,
         )
         app.state._rate_limit_worker_warned = True
-

@@ -1,0 +1,58 @@
+{
+  "baseline_commit": "9a94c69",
+  "recorded_at": "2026-04-17",
+  "queries_yaml": "tests/retrieval_quality_baseline/queries.yaml",
+  "description": "Baseline recorded on synthetic FAA Part 25 corpus (43 synthetic regulatory-style chunks, keyword-only hit matching). The hit detection uses keyword matching only (no page matching) since synthetic corpus pages don't correspond to real PDF pagination. Metrics reflect keyword coverage of the synthetic corpus.",
+  "corpus": {
+    "available": ["FAA_Part25.pdf (synthetic)"],
+    "generation": "tests/conftest.py ensure_synthetic_corpus fixture (session scope, autouse=True) — 43 synthetic chunks, C1 compliant (offline BGE embeddings, no network)",
+    "note": "Synthetic corpus ensures reproducible retrieval metrics in air-gap CI. Hit detection is keyword-only (no page matching)."
+  },
+  "config": {
+    "top_k": 5,
+    "rrf_weights": {"semantic": 0.4, "bm25": 0.3, "graph": 0.3},
+    "expand_graph": true,
+    "notebook_id": "__eval__",
+    "hit_detection": "keyword_only"
+  },
+  "metrics": {
+    "mrr_at_5": 0.3844,
+    "ndcg_at_5": 0.4566,
+    "recall_at_5": 0.6000,
+    "hit_rate": 0.5000
+  },
+  "per_query_summary": [
+    {"query_id": "q-faa-001", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-002", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-003", "hit": false, "rr": 0.0},
+    {"query_id": "q-faa-004", "hit": true,  "rr": 0.5},
+    {"query_id": "q-faa-005", "hit": false, "rr": 0.0},
+    {"query_id": "q-faa-006", "hit": false, "rr": 0.0},
+    {"query_id": "q-faa-007", "hit": false, "rr": 0.0},
+    {"query_id": "q-faa-008", "hit": true,  "rr": 0.2},
+    {"query_id": "q-faa-009", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-010", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-011", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-012", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-013", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-014", "hit": false, "rr": 0.0},
+    {"query_id": "q-faa-015", "hit": false, "rr": 0.0},
+    {"query_id": "q-faa-016", "hit": false, "rr": 0.0},
+    {"query_id": "q-faa-017", "hit": false, "rr": 0.0},
+    {"query_id": "q-faa-018", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-019", "hit": true,  "rr": 1.0},
+    {"query_id": "q-faa-020", "hit": false, "rr": 0.0},
+    {"query_id": "q-ccar-001", "hit": false, "rr": 0.0},
+    {"query_id": "q-ccar-002", "hit": false, "rr": 0.0},
+    {"query_id": "q-ccar-003", "hit": false, "rr": 0.0},
+    {"query_id": "q-ccar-004", "hit": true,  "rr": 0.25},
+    {"query_id": "q-ccar-005", "hit": false, "rr": 0.0},
+    {"query_id": "q-ccar-006", "hit": true,  "rr": 0.25},
+    {"query_id": "q-ccar-007", "hit": false, "rr": 0.0},
+    {"query_id": "q-ccar-008", "hit": true,  "rr": 0.3333},
+    {"query_id": "q-ccar-009", "hit": false, "rr": 0.0},
+    {"query_id": "q-ccar-010", "hit": true,  "rr": 1.0}
+  ],
+  "regression_threshold_pct": 5,
+  "update_policy": "Any metric (MRR, NDCG, Recall) that regresses by >5% relative to baseline must be investigated and approved by Opus Gate Review before merging. See docs/RETRIEVAL_QUALITY_BASELINE.md."
+}

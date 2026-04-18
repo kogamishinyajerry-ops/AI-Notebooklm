@@ -142,15 +142,14 @@ def _install_main_api_stubs(tmp_path: Path) -> None:
         filenames_mod.safe_upload_path = lambda upload_dir, filename, content_type=None: Path(upload_dir) / (filename or "upload.pdf")
         filenames_mod.validate_pdf_magic = lambda file_obj: None
 
-    if "core.ingestion.transaction" not in sys.modules:
-        transaction_mod = _stub_module("core.ingestion.transaction")
-        transaction_mod.DEFAULT_SPACES_DIR = tmp_path / "spaces"
-        transaction_mod.IngestTransaction = MagicMock
-        transaction_mod.cleanup_committed_transactions = MagicMock()
-        transaction_mod.iter_space_ids = MagicMock(return_value=[])
-        transaction_mod.recover_incomplete_transactions = MagicMock()
-        transaction_mod.summarize_transaction_health = MagicMock(return_value={})
-        transaction_mod.utc_now_iso = lambda: "2026-01-01T00:00:00+00:00"
+    transaction_mod = _stub_module("core.ingestion.transaction")
+    transaction_mod.DEFAULT_SPACES_DIR = tmp_path / "spaces"
+    transaction_mod.IngestTransaction = MagicMock
+    transaction_mod.cleanup_committed_transactions = MagicMock()
+    transaction_mod.iter_space_ids = MagicMock(return_value=[])
+    transaction_mod.recover_incomplete_transactions = MagicMock()
+    transaction_mod.summarize_transaction_health = MagicMock(return_value={})
+    transaction_mod.utc_now_iso = lambda: "2026-01-01T00:00:00+00:00"
 
     if "core.retrieval.retriever" not in sys.modules:
         retriever_mod = _stub_module("core.retrieval.retriever")
