@@ -24,6 +24,10 @@ _ALLOWED_FIELDS = {
     "quota.dimension",
     "quota.limit",
     "quota.used",
+    "orphan_table",
+    "orphan_id",
+    "parent_table",
+    "parent_column",
 }
 
 

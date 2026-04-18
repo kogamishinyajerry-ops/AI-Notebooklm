@@ -148,6 +148,7 @@ def test_audit_event_enum_is_complete():
         "graph.generate",
         "quota.denied",
         "auth.denied",
+        "integrity.repair",
     ]
 
 

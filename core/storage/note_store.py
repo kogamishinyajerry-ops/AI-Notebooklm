@@ -10,12 +10,14 @@ No per-notebook JSON files.
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 from typing import List
 
 from core.ingestion.transaction import DEFAULT_SPACES_DIR, utc_now_iso
 from core.models.note import Note
+from core.storage.exceptions import NotebookNotFound
 
 
 def _get_conn(db_path):
@@ -41,14 +43,7 @@ class NoteStore:
         self.spaces_dir = Path(spaces_dir)
 
     def _conn(self):
-        conn = _get_conn(self.db_path)
-        # Disable FK enforcement for this store — notes can be created for
-        # notebooks that don't yet exist in the DB (backward compatible with
-        # the original JSON-per-notebook design). ON DELETE CASCADE on
-        # NotebookStore.delete() still cascades child records atomically when
-        # the parent notebook is deleted from notebooks table.
-        conn.execute("PRAGMA foreign_keys=OFF")
-        return conn
+        return _get_conn(self.db_path)
 
     def create(
         self,
@@ -69,16 +64,21 @@ class NoteStore:
         )
         conn = self._conn()
         try:
-            conn.execute(
-                """INSERT INTO notes
-                   (id, notebook_id, title, content, citations, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    note.id, note.notebook_id, note.title, note.content,
-                    json.dumps(note.citations, ensure_ascii=False),
-                    note.created_at, note.updated_at,
-                ),
-            )
+            try:
+                conn.execute(
+                    """INSERT INTO notes
+                       (id, notebook_id, title, content, citations, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        note.id, note.notebook_id, note.title, note.content,
+                        json.dumps(note.citations, ensure_ascii=False),
+                        note.created_at, note.updated_at,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if "FOREIGN KEY constraint failed" in str(exc):
+                    raise NotebookNotFound(notebook_id) from exc
+                raise
             conn.commit()
         finally:
             conn.close()

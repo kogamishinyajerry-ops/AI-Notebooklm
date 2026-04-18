@@ -67,6 +67,33 @@ def _patch_transaction():
 
 _patch_transaction()
 
+
+def _seed_notebooks(db_path: Path, notebook_ids: tuple[str, ...]) -> None:
+    from core.storage.sqlite_db import get_connection, init_schema
+
+    conn = get_connection(db_path)
+    init_schema(conn)
+    try:
+        for notebook_id in notebook_ids:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO notebooks
+                    (id, name, created_at, updated_at, source_count, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notebook_id,
+                    f"Notebook {notebook_id}",
+                    "2026-04-16T00:00:00Z",
+                    "2026-04-16T00:00:00Z",
+                    0,
+                    None,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
 # ---------------------------------------------------------------------------
 # Evict any stale stubs for the modules we want to import REAL
 # (runs at collection time; the fixture below repeats this before each test
@@ -88,7 +115,7 @@ for _m in _REAL_STORE_MODULES:
 
 
 @pytest.fixture(autouse=True)
-def _evict_store_stubs():
+def _evict_store_stubs(tmp_path):
     """Re-evict store stubs before every test so cross-file contamination
     (e.g. test_cross_notebook_isolation._stub('core.storage')) doesn't block
     real submodule imports.  Also ensure the transaction stub has the
@@ -99,6 +126,7 @@ def _evict_store_stubs():
     # re-patch so the stub (or real module) has everything note_store needs.
     sys.modules.pop("core.ingestion.transaction", None)
     _patch_transaction()
+    _seed_notebooks(tmp_path / "notebooks.db", ("nb-1", "nb-a", "nb-b"))
     yield
     # Teardown: evict store modules so the next test also gets a fresh import
     for name in _REAL_STORE_MODULES + _REAL_PARENT_PACKAGES:

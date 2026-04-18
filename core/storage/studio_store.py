@@ -10,12 +10,14 @@ No per-notebook JSON files.
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
 from core.ingestion.transaction import DEFAULT_SPACES_DIR, utc_now_iso
 from core.models.studio_output import StudioOutput
+from core.storage.exceptions import NotebookNotFound
 
 
 def _get_conn(db_path):
@@ -41,9 +43,7 @@ class StudioStore:
         self.spaces_dir = Path(spaces_dir)
 
     def _conn(self):
-        conn = _get_conn(self.db_path)
-        conn.execute("PRAGMA foreign_keys=OFF")
-        return conn
+        return _get_conn(self.db_path)
 
     def create(
         self,
@@ -74,17 +74,22 @@ class StudioStore:
         )
         conn = self._conn()
         try:
-            conn.execute(
-                """INSERT INTO studio_outputs
-                   (id, notebook_id, output_type, title, content, citations, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    output.id, output.notebook_id, output.output_type,
-                    output.title, output.content,
-                    json.dumps(output.citations, ensure_ascii=False),
-                    output.created_at,
-                ),
-            )
+            try:
+                conn.execute(
+                    """INSERT INTO studio_outputs
+                       (id, notebook_id, output_type, title, content, citations, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        output.id, output.notebook_id, output.output_type,
+                        output.title, output.content,
+                        json.dumps(output.citations, ensure_ascii=False),
+                        output.created_at,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if "FOREIGN KEY constraint failed" in str(exc):
+                    raise NotebookNotFound(notebook_id) from exc
+                raise
             conn.commit()
         finally:
             conn.close()

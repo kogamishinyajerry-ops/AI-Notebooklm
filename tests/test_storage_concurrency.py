@@ -107,7 +107,7 @@ def test_concurrent_notes_writes_are_all_recoverable(_fresh_db):
     # Pre-create the owning notebook (required by FK constraint)
     from core.storage.notebook_store import NotebookStore
     nb_store = NotebookStore(db_path=db_path)
-    nb_store.create(name="Concurrent Test Notebook")
+    notebook_id = nb_store.create(name="Concurrent Test Notebook").id
 
     from core.storage.note_store import NoteStore
     nstore = NoteStore(db_path=db_path)
@@ -161,7 +161,7 @@ def test_concurrent_sources_writes_are_all_recoverable(_fresh_db):
 
     from core.storage.notebook_store import NotebookStore
     nb_store = NotebookStore(db_path=db_path)
-    nb_store.create(name="Concurrent Sources Test")
+    notebook_id = nb_store.create(name="Concurrent Sources Test").id
 
     from core.storage.source_registry import SourceRegistry
     reg = SourceRegistry(db_path=db_path)
@@ -212,7 +212,7 @@ def test_concurrent_chat_messages_are_all_recoverable(_fresh_db):
 
     from core.storage.notebook_store import NotebookStore
     nb_store = NotebookStore(db_path=db_path)
-    nb_store.create(name="Concurrent Chat Test")
+    notebook_id = nb_store.create(name="Concurrent Chat Test").id
 
     from core.storage.chat_history_store import ChatHistoryStore
     chat_store = ChatHistoryStore(db_path=db_path)
@@ -263,7 +263,7 @@ def test_concurrent_mixed_writes_all_recoverable(_fresh_db):
 
     from core.storage.notebook_store import NotebookStore
     nb_store = NotebookStore(db_path=db_path)
-    nb_store.create(name="Concurrent Mixed Test")
+    notebook_id = nb_store.create(name="Concurrent Mixed Test").id
 
     from core.storage.note_store import NoteStore
     from core.storage.source_registry import SourceRegistry
@@ -410,21 +410,18 @@ def test_wal_mode_preserves_data_under_write_load(_fresh_db):
 def test_notebook_delete_cascades_pre_existing_records(_fresh_db):
     """
     ON DELETE CASCADE atomically removes all pre-existing child records
-    when the owning notebook is deleted — regardless of concurrent write load.
+    when the owning notebook is deleted.
 
-    This test is deterministic: pre-populate records, delete the notebook,
-    then concurrently insert more records while verifying pre-existing records
-    are gone (post-delete inserts are a separate concern — NoteStore deliberately
-    disables FK enforcement so they succeed; that is tested in the next test).
+    V4.2-T5 keeps FK enforcement enabled across stores, so writes after the
+    parent delete are rejected rather than surviving as orphans.
     """
-    import threading
-
     db_path = _fresh_db
 
     from core.storage.notebook_store import NotebookStore
     from core.storage.note_store import NoteStore
     from core.storage.source_registry import SourceRegistry
     from core.storage.chat_history_store import ChatHistoryStore
+    from core.storage.exceptions import NotebookNotFound
 
     nb_store = NotebookStore(db_path=db_path)
     nb = nb_store.create(name="Cascade Test")
@@ -449,35 +446,26 @@ def test_notebook_delete_cascades_pre_existing_records(_fresh_db):
     # Confirm pre-population worked
     assert len(nstore.list_by_notebook(nb.id)) == 10
 
-    inserted_after_delete = []
-    delete_err = []
+    assert nb_store.delete(nb.id) is True
 
     def _write_after_delete():
-        # These inserts run while the notebook is already deleted.
-        # NoteStore disables FK enforcement, so these succeed as orphans.
-        # They are NOT expected to be CASCADE-removed.
+        rejected = []
         for j in range(5):
             try:
-                n = nstore.create(nb.id, content=f"Live {j}", citations=[], title=f"Live-{j}")
-                inserted_after_delete.append(n.id)
-            except Exception as exc:  # noqa: BLE001
-                delete_err.append(exc)
+                nstore.create(nb.id, content=f"Live {j}", citations=[], title=f"Live-{j}")
+            except NotebookNotFound as exc:
+                rejected.append(exc)
+        return rejected
 
-    def _delete_notebook():
-        try:
-            nb_store.delete(nb.id)
-        except Exception as exc:  # noqa: BLE001
-            delete_err.append(exc)
-
-    # Run delete and concurrent inserts simultaneously
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [
-            executor.submit(_write_after_delete),
-            executor.submit(_delete_notebook),
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(_write_after_delete) for _ in range(5)]
+        rejected_after_delete = [
+            exc
+            for future in concurrent.futures.as_completed(futures)
+            for exc in future.result()
         ]
-        concurrent.futures.wait(futures)
 
-    assert not delete_err, f"Delete or write raised: {delete_err}"
+    assert len(rejected_after_delete) == 25
 
     notes_after = nstore.list_by_notebook(nb.id)
     srcs_after = reg.list_by_notebook(nb.id)
@@ -498,7 +486,8 @@ def test_notebook_delete_cascades_pre_existing_records(_fresh_db):
         f"Pre-existing messages still present after cascade delete: {remaining_pre_msgs}"
     )
 
-    # Post-delete inserts may survive as orphans (FK enforcement is OFF in NoteStore)
-    # — this is the documented backward-compatibility behavior, not a test failure.
-    # We just verify they appear in the list.
-    assert len(inserted_after_delete) >= 0  # they may or may not have succeeded
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()

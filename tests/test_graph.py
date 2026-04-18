@@ -76,6 +76,33 @@ def _install_stubs() -> None:
 _install_stubs()
 
 
+def _seed_notebooks(db_path: Path, notebook_ids: tuple[str, ...]) -> None:
+    from core.storage.sqlite_db import get_connection, init_schema
+
+    conn = get_connection(db_path)
+    init_schema(conn)
+    try:
+        for notebook_id in notebook_ids:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO notebooks
+                    (id, name, created_at, updated_at, source_count, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notebook_id,
+                    f"Notebook {notebook_id}",
+                    "2026-04-18T00:00:00Z",
+                    "2026-04-18T00:00:00Z",
+                    0,
+                    None,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -98,11 +125,15 @@ _RETRIEVAL_STUB_MODULES = (
 
 
 @pytest.fixture(autouse=True)
-def _evict_graph_stubs():
+def _evict_graph_stubs(tmp_path):
     saved = {}
     for mod in _REAL_MODULES_TO_EVICT:
         if mod in sys.modules:
             saved[mod] = sys.modules.pop(mod)
+    _seed_notebooks(
+        tmp_path / "notebooks.db",
+        ("nb-1", "nb-x", "nb-del", "nb-rt", "nb-test"),
+    )
     yield
     # Restore real modules
     sys.modules.update(saved)
