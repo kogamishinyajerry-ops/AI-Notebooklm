@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi import Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
@@ -51,16 +52,19 @@ from core.security.auth import (
     auth_is_enabled,
     get_current_principal as _auth_get_current_principal,
 )
+from core.governance.audit_events import AuditEvent
 from core.governance.audit_logger import AuditLogger
 from core.governance.quota_store import DailyUploadQuota, NotebookCountCap, QuotaExceededError
 from core.governance.rate_limit import (
     CHAT_RATE_EXCEEDED_DETAIL,
     _get_chat_rate,
     limiter,
+    rate_limit_exception_handler,
     setup_rate_limit,
 )
 from core.models.notebook import Notebook
 from core.observability.logging_utils import emit_json_log
+from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
@@ -233,11 +237,42 @@ async def handle_quota_exceeded(
     request: Request,
     exc: QuotaExceededError,
 ) -> JSONResponse:
+    _record_quota_denied(request, dimension=exc.dimension)
     return JSONResponse(
         status_code=429,
         content={"detail": exc.detail, "retry_after": exc.retry_after},
         headers={"Retry-After": str(exc.retry_after)},
     )
+
+
+@app.exception_handler(RateLimitExceeded)
+async def handle_rate_limit_exceeded(
+    request: Request,
+    exc: RateLimitExceeded,
+) -> JSONResponse:
+    detail = getattr(exc, "detail", CHAT_RATE_EXCEEDED_DETAIL) or CHAT_RATE_EXCEEDED_DETAIL
+    dimension = str(detail).split(": ", 1)[1] if ": " in str(detail) else "chat_requests"
+    _record_quota_denied(request, dimension=dimension)
+    return rate_limit_exception_handler(request, exc)
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(
+    request: Request,
+    exc: HTTPException,
+) -> Response:
+    if exc.status_code in (401, 403):
+        get_audit_logger(request).record(
+            request=request,
+            event=AuditEvent.AUTH_DENIED,
+            outcome="failure",
+            resource_type="-",
+            resource_id="-",
+            parent_resource_id="-",
+            http_status=exc.status_code,
+            error_code=_auth_denied_error_code(exc),
+        )
+    return await http_exception_handler(request, exc)
 
 
 def _get_upload_quota() -> DailyUploadQuota:
@@ -264,6 +299,96 @@ def get_audit_logger(request: Request) -> AuditLogger:
         audit_logger = AuditLogger(db_path=_DB_PATH)
     request.app.state.audit_logger = audit_logger
     return audit_logger
+
+
+def _audit_error_code(status_code: int) -> str:
+    codes = {
+        400: "bad_request",
+        401: "auth_required",
+        403: "auth_denied",
+        404: "not_found",
+        422: "validation_error",
+        429: "quota_denied",
+        500: "internal_error",
+        503: "service_unavailable",
+    }
+    return codes.get(status_code, f"http_{status_code}")
+
+
+def _record_audit_success(
+    request: Request,
+    *,
+    event: AuditEvent,
+    resource_type: str,
+    http_status: int,
+    resource_id: str = "-",
+    parent_resource_id: str = "-",
+    payload: Optional[dict] = None,
+) -> None:
+    get_audit_logger(request).record(
+        request=request,
+        event=event,
+        outcome="success",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        parent_resource_id=parent_resource_id,
+        http_status=http_status,
+        payload=payload,
+    )
+
+
+def _record_audit_failure(
+    request: Request,
+    *,
+    event: AuditEvent,
+    resource_type: str,
+    http_status: int,
+    error_code: str,
+    resource_id: str = "-",
+    parent_resource_id: str = "-",
+    payload: Optional[dict] = None,
+) -> None:
+    if http_status in (401, 403):
+        return
+
+    get_audit_logger(request).record(
+        request=request,
+        event=event,
+        outcome="failure",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        parent_resource_id=parent_resource_id,
+        http_status=http_status,
+        error_code=error_code,
+        payload=payload,
+    )
+
+
+def _record_quota_denied(
+    request: Request,
+    *,
+    dimension: str,
+) -> None:
+    get_audit_logger(request).record(
+        request=request,
+        event=AuditEvent.QUOTA_DENIED,
+        outcome="failure",
+        resource_type="-",
+        resource_id="-",
+        parent_resource_id="-",
+        http_status=429,
+        error_code=f"quota_{dimension}",
+        payload={"quota.dimension": dimension},
+    )
+
+
+def _auth_denied_error_code(exc: HTTPException) -> str:
+    detail = str(exc.detail).lower() if exc.detail is not None else ""
+    if exc.status_code == 401 and "required" in detail:
+        return "auth_required"
+    if exc.status_code == 401 and "invalid" in detail:
+        return "auth_invalid_api_key"
+    return "auth_denied"
 
 
 def _build_notebook(name: str, owner_id: Optional[str]) -> Notebook:
@@ -367,27 +492,63 @@ def llm_health_check():
 
 @app.post("/api/v1/spaces")
 def create_space(
+    request: Request,
     name: str,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Legacy alias for creating a notebook-backed knowledge space."""
     owner_id = _principal_owner_id(principal)
+    audit_payload = {"title": name}
     try:
         notebook = _create_owned_notebook(name, owner_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.SPACE_CREATE,
+            resource_type="space",
+            http_status=400,
+            error_code=_audit_error_code(400),
+            payload=audit_payload,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _record_audit_success(
+        request,
+        event=AuditEvent.SPACE_CREATE,
+        resource_type="space",
+        resource_id=notebook.id,
+        http_status=200,
+        payload={"title": notebook.name, "space_id": notebook.id},
+    )
     return {"space_id": notebook.id, "name": notebook.name}
 
 @app.post("/api/v1/notebooks", status_code=201)
 def create_notebook(
-    request: NotebookCreateRequest,
+    request: Request,
+    payload: NotebookCreateRequest,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     owner_id = _principal_owner_id(principal)
+    audit_payload = {"title": payload.name}
     try:
-        notebook = _create_owned_notebook(request.name, owner_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        notebook = _create_owned_notebook(payload.name, owner_id)
+    except ValueError as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.NOTEBOOK_CREATE,
+            resource_type="notebook",
+            http_status=400,
+            error_code=_audit_error_code(400),
+            payload=audit_payload,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _record_audit_success(
+        request,
+        event=AuditEvent.NOTEBOOK_CREATE,
+        resource_type="notebook",
+        resource_id=notebook.id,
+        http_status=201,
+        payload={"title": notebook.name, "notebook_id": notebook.id},
+    )
     return notebook.to_dict()
 
 @app.get("/api/v1/notebooks")
@@ -414,16 +575,38 @@ def get_notebook(
 
 @app.delete("/api/v1/notebooks/{notebook_id}", status_code=204)
 def delete_notebook(
+    request: Request,
     notebook_id: str,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
-    _require_notebook_access(notebook_id, principal)
+    audit_payload = {"notebook_id": notebook_id}
+    try:
+        _require_notebook_access(notebook_id, principal)
 
-    for source in source_registry.list_by_notebook(notebook_id):
-        ingestion_service.vector_store.delete(where={"source_id": source.id})
+        for source in source_registry.list_by_notebook(notebook_id):
+            ingestion_service.vector_store.delete(where={"source_id": source.id})
 
-    if not notebook_store.delete(notebook_id):
-        raise HTTPException(status_code=404, detail="Notebook not found")
+        if not notebook_store.delete(notebook_id):
+            raise HTTPException(status_code=404, detail="Notebook not found")
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.NOTEBOOK_DELETE,
+            resource_type="notebook",
+            resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.NOTEBOOK_DELETE,
+        resource_type="notebook",
+        resource_id=notebook_id,
+        http_status=204,
+        payload=audit_payload,
+    )
 
 @app.get("/api/v1/notebooks/{notebook_id}/sources")
 def list_sources(
@@ -447,19 +630,43 @@ def get_source(
 
 @app.delete("/api/v1/notebooks/{notebook_id}/sources/{source_id}", status_code=204)
 def delete_source(
+    request: Request,
     notebook_id: str,
     source_id: str,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
-    _require_notebook_access(notebook_id, principal)
-    source = source_registry.get(notebook_id, source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
+    audit_payload = {"notebook_id": notebook_id, "source_id": source_id}
+    try:
+        _require_notebook_access(notebook_id, principal)
+        source = source_registry.get(notebook_id, source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="Source not found")
 
-    ingestion_service.vector_store.delete(where={"source_id": source_id})
-    Path(source.file_path).unlink(missing_ok=True)
-    source_registry.delete(notebook_id, source_id)
-    notebook_store.increment_source_count(notebook_id, -1)
+        ingestion_service.vector_store.delete(where={"source_id": source_id})
+        Path(source.file_path).unlink(missing_ok=True)
+        source_registry.delete(notebook_id, source_id)
+        notebook_store.increment_source_count(notebook_id, -1)
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.SOURCE_DELETE,
+            resource_type="source",
+            resource_id=source_id,
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.SOURCE_DELETE,
+        resource_type="source",
+        resource_id=source_id,
+        parent_resource_id=notebook_id,
+        http_status=204,
+        payload=audit_payload,
+    )
 
 class LLMUnavailableError(Exception):
     """Raised when the local vLLM service cannot be reached."""
@@ -513,64 +720,136 @@ async def chat_endpoint(
     Returns HTTP 503 if the local LLM service is unavailable.
     """
     notebook_id = chat_request.resolved_notebook_id
+    audit_payload = {
+        "notebook_id": notebook_id or "-",
+        "chat.message_length": len(chat_request.query or ""),
+        "chat.history_turns": len(chat_request.history or []),
+    }
 
-    # 1. Resolve notebook and its source_ids for retrieval scoping
-    source_ids: list[str] | None = None
-    if notebook_id:
-        notebook = notebook_store.get(notebook_id)
-        if notebook is None:
-            raise HTTPException(status_code=400, detail=f"Notebook '{notebook_id}' not found")
-        if auth_is_enabled():
-            owner_id = getattr(notebook, "owner_id", None)
-            if owner_id != _principal_owner_id(principal):
-                raise HTTPException(status_code=403, detail="Notebook access denied")
-        sources = source_registry.list_by_notebook(notebook_id)
-        source_ids = [s.id for s in sources] if sources else []
-        if not source_ids:
-            return ChatResponse(
+    try:
+        # 1. Resolve notebook and its source_ids for retrieval scoping
+        source_ids: list[str] | None = None
+        if notebook_id:
+            notebook = notebook_store.get(notebook_id)
+            if notebook is None:
+                raise HTTPException(status_code=400, detail=f"Notebook '{notebook_id}' not found")
+            if auth_is_enabled():
+                owner_id = getattr(notebook, "owner_id", None)
+                if owner_id != _principal_owner_id(principal):
+                    raise HTTPException(status_code=403, detail="Notebook access denied")
+            sources = source_registry.list_by_notebook(notebook_id)
+            source_ids = [s.id for s in sources] if sources else []
+            if not source_ids:
+                response = ChatResponse(
+                    answer="未在当前知识库中检索到相关内容，请上传相关文档后再试。",
+                    is_fully_verified=False,
+                    citations=[],
+                )
+                _record_audit_success(
+                    request,
+                    event=AuditEvent.CHAT_REQUEST,
+                    resource_type="chat",
+                    resource_id="-",
+                    parent_resource_id=notebook_id or "-",
+                    http_status=200,
+                    payload=audit_payload,
+                )
+                return response
+
+        # 2. Retrieve — scoped to this notebook's source_ids when available
+        retrieval_started_at = time.perf_counter()
+        contexts = retriever_engine.retrieve(
+            chat_request.query,
+            top_k=5,
+            final_k=3,
+            source_ids=source_ids if source_ids else None,
+            notebook_id=notebook_id,
+        )
+        retrieval_duration_ms = round((time.perf_counter() - retrieval_started_at) * 1000, 2)
+
+        if not contexts:
+            emit_json_log(
+                logger,
+                "retrieval.summary",
+                request_id=getattr(request.state, "request_id", None),
+                notebook_id=notebook_id,
+                source_scope_size=len(source_ids or []),
+                contexts_returned=0,
+                citations_returned=0,
+                retrieval_duration_ms=retrieval_duration_ms,
+                is_fully_verified=False,
+                llm_available=None,
+            )
+            response = ChatResponse(
                 answer="未在当前知识库中检索到相关内容，请上传相关文档后再试。",
                 is_fully_verified=False,
                 citations=[],
             )
+            _record_audit_success(
+                request,
+                event=AuditEvent.CHAT_REQUEST,
+                resource_type="chat",
+                resource_id="-",
+                parent_resource_id=notebook_id or "-",
+                http_status=200,
+                payload=audit_payload,
+            )
+            return response
 
-    # 2. Retrieve — scoped to this notebook's source_ids when available
-    retrieval_started_at = time.perf_counter()
-    contexts = retriever_engine.retrieve(
-        chat_request.query,
-        top_k=5,
-        final_k=3,
-        source_ids=source_ids if source_ids else None,
-        notebook_id=notebook_id,
-    )
-    retrieval_duration_ms = round((time.perf_counter() - retrieval_started_at) * 1000, 2)
+        # 3. Build Prompt
+        context_str = build_context_block(contexts)
+        system_prompt = QA_SYSTEM_PROMPT.format(context_blocks=context_str)
 
-    if not contexts:
-        emit_json_log(
-            logger,
-            "retrieval.summary",
-            request_id=getattr(request.state, "request_id", None),
-            notebook_id=notebook_id,
-            source_scope_size=len(source_ids or []),
-            contexts_returned=0,
-            citations_returned=0,
-            retrieval_duration_ms=retrieval_duration_ms,
-            is_fully_verified=False,
-            llm_available=None,
+        # 4. Generate (LLM) — raise 503 if service unavailable
+        try:
+            raw_response = invoke_local_llm(system_prompt, chat_request.query)
+        except LLMUnavailableError as exc:
+            emit_json_log(
+                logger,
+                "retrieval.summary",
+                request_id=getattr(request.state, "request_id", None),
+                notebook_id=notebook_id,
+                source_scope_size=len(source_ids or []),
+                contexts_returned=len(contexts),
+                citations_returned=0,
+                retrieval_duration_ms=retrieval_duration_ms,
+                is_fully_verified=False,
+                llm_available=False,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"LLM service unavailable. Please ensure vLLM is running. ({exc})",
+            ) from exc
+
+        # 5. Anti-Hallucination Gate
+        is_valid, safe_response, verified_citations = AntiHallucinationGateway.validate_and_parse(
+            raw_response, contexts
         )
-        return ChatResponse(
-            answer="未在当前知识库中检索到相关内容，请上传相关文档后再试。",
-            is_fully_verified=False,
-            citations=[],
-        )
 
-    # 3. Build Prompt
-    context_str = build_context_block(contexts)
-    system_prompt = QA_SYSTEM_PROMPT.format(context_blocks=context_str)
+        citations_data = [
+            Citation(
+                source_file=c["source_file"],
+                page_number=c["page_number"],
+                content=c["content"],
+                bbox=c["bbox"],
+            )
+            for c in verified_citations
+        ]
 
-    # 4. Generate (LLM) — raise 503 if service unavailable
-    try:
-        raw_response = invoke_local_llm(system_prompt, chat_request.query)
-    except LLMUnavailableError as exc:
+        # 6. Persist chat history
+        if chat_request.save_history and notebook_id:
+            try:
+                chat_history_store.append(notebook_id, "user", chat_request.query)
+                chat_history_store.append(
+                    notebook_id,
+                    "assistant",
+                    safe_response,
+                    citations=[c.model_dump() for c in citations_data],
+                    is_fully_verified=is_valid,
+                )
+            except Exception:
+                pass  # history persistence must never break the response
+
         emit_json_log(
             logger,
             "retrieval.summary",
@@ -578,138 +857,155 @@ async def chat_endpoint(
             notebook_id=notebook_id,
             source_scope_size=len(source_ids or []),
             contexts_returned=len(contexts),
-            citations_returned=0,
+            citations_returned=len(citations_data),
             retrieval_duration_ms=retrieval_duration_ms,
-            is_fully_verified=False,
-            llm_available=False,
+            is_fully_verified=is_valid,
+            llm_available=True,
         )
-        raise HTTPException(
-            status_code=503,
-            detail=f"LLM service unavailable. Please ensure vLLM is running. ({exc})",
-        ) from exc
 
-    # 5. Anti-Hallucination Gate
-    is_valid, safe_response, verified_citations = AntiHallucinationGateway.validate_and_parse(
-        raw_response, contexts
-    )
-
-    citations_data = [
-        Citation(
-            source_file=c["source_file"],
-            page_number=c["page_number"],
-            content=c["content"],
-            bbox=c["bbox"],
+        response = ChatResponse(
+            answer=safe_response,
+            is_fully_verified=is_valid,
+            citations=citations_data,
         )
-        for c in verified_citations
-    ]
-
-    # 6. Persist chat history
-    if chat_request.save_history and notebook_id:
-        try:
-            chat_history_store.append(notebook_id, "user", chat_request.query)
-            chat_history_store.append(
-                notebook_id,
-                "assistant",
-                safe_response,
-                citations=[c.model_dump() for c in citations_data],
-                is_fully_verified=is_valid,
-            )
-        except Exception:
-            pass  # history persistence must never break the response
-
-    emit_json_log(
-        logger,
-        "retrieval.summary",
-        request_id=getattr(request.state, "request_id", None),
-        notebook_id=notebook_id,
-        source_scope_size=len(source_ids or []),
-        contexts_returned=len(contexts),
-        citations_returned=len(citations_data),
-        retrieval_duration_ms=retrieval_duration_ms,
-        is_fully_verified=is_valid,
-        llm_available=True,
-    )
-
-    return ChatResponse(
-        answer=safe_response,
-        is_fully_verified=is_valid,
-        citations=citations_data,
-    )
+        _record_audit_success(
+            request,
+            event=AuditEvent.CHAT_REQUEST,
+            resource_type="chat",
+            resource_id="-",
+            parent_resource_id=notebook_id or "-",
+            http_status=200,
+            payload=audit_payload,
+        )
+        return response
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.CHAT_REQUEST,
+            resource_type="chat",
+            resource_id="-",
+            parent_resource_id=notebook_id or "-",
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
 
 @app.post("/api/v1/notebooks/{notebook_id}/sources/upload")
 async def upload_source(
+    request: Request,
     notebook_id: str,
     file: UploadFile = File(...),
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Uploads and triggers ingestion for a document."""
-    _require_notebook_access(notebook_id, principal)
-    owner_id = _principal_owner_id(principal)
-    if owner_id is not None:
-        _get_upload_quota().check_and_record(owner_id, _measure_upload_bytes(file))
-
-    upload_dir = source_registry.spaces_dir / notebook_id / "docs"
-    os.makedirs(upload_dir, exist_ok=True)
-    try:
-        file_path = safe_upload_path(upload_dir, file.filename, file.content_type)
-        validate_pdf_magic(file.file)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    source = source_registry.register(notebook_id, file_path.name, str(file_path))
-    notebook_store.increment_source_count(notebook_id, 1)
-    transaction = IngestTransaction(space_id=notebook_id, base_dir=source_registry.spaces_dir)
-    transaction.record_source(notebook_id, source.id)
-    
-    try:
-        source_registry.update_status(notebook_id, source.id, SourceStatus.PROCESSING)
-
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        transaction.record_file(file_path)
-
-        chunk_count, page_count = ingestion_service.process_file(
-            str(file_path),
-            space_id=notebook_id,
-            source_id=source.id,
-            transaction=transaction,
-        )
-        source = source_registry.update_status(
-            notebook_id,
-            source.id,
-            SourceStatus.READY,
-            page_count=page_count,
-            chunk_count=chunk_count,
-        )
-    except Exception as e:
-        try:
-            source_registry.update_status(notebook_id, source.id, SourceStatus.FAILED, error_message=str(e))
-        except Exception:
-            pass
-        if transaction.status == "in_progress":
-            transaction.rollback(
-                vector_store=ingestion_service.vector_store,
-                registry=getattr(ingestion_service, "parameter_registry", None),
-            )
-        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
-    
-    return {
-        "source": source.to_dict(),
-        "filename": source.filename,
-        "space_id": notebook_id,
-        "chunks_indexed": chunk_count,
-        "status": "completed"
+    upload_bytes = _measure_upload_bytes(file)
+    audit_payload = {
+        "notebook_id": notebook_id,
+        "source_type": "upload",
+        "content_type": file.content_type,
+        "bytes_size": upload_bytes,
+        "filename": file.filename or "",
     }
+    source = None
+    try:
+        _require_notebook_access(notebook_id, principal)
+        owner_id = _principal_owner_id(principal)
+        if owner_id is not None:
+            _get_upload_quota().check_and_record(owner_id, upload_bytes)
+
+        upload_dir = source_registry.spaces_dir / notebook_id / "docs"
+        os.makedirs(upload_dir, exist_ok=True)
+        try:
+            file_path = safe_upload_path(upload_dir, file.filename, file.content_type)
+            validate_pdf_magic(file.file)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        source = source_registry.register(notebook_id, file_path.name, str(file_path))
+        notebook_store.increment_source_count(notebook_id, 1)
+        transaction = IngestTransaction(space_id=notebook_id, base_dir=source_registry.spaces_dir)
+        transaction.record_source(notebook_id, source.id)
+
+        try:
+            source_registry.update_status(notebook_id, source.id, SourceStatus.PROCESSING)
+
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            transaction.record_file(file_path)
+
+            chunk_count, page_count = ingestion_service.process_file(
+                str(file_path),
+                space_id=notebook_id,
+                source_id=source.id,
+                transaction=transaction,
+            )
+            source = source_registry.update_status(
+                notebook_id,
+                source.id,
+                SourceStatus.READY,
+                page_count=page_count,
+                chunk_count=chunk_count,
+            )
+        except Exception as exc:
+            try:
+                source_registry.update_status(notebook_id, source.id, SourceStatus.FAILED, error_message=str(exc))
+            except Exception:
+                pass
+            if transaction.status == "in_progress":
+                transaction.rollback(
+                    vector_store=ingestion_service.vector_store,
+                    registry=getattr(ingestion_service, "parameter_registry", None),
+                )
+            raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(exc)}") from exc
+
+        _record_audit_success(
+            request,
+            event=AuditEvent.SOURCE_UPLOAD,
+            resource_type="source",
+            resource_id=source.id,
+            parent_resource_id=notebook_id,
+            http_status=200,
+            payload={
+                **audit_payload,
+                "source_id": source.id,
+            },
+        )
+        return {
+            "source": source.to_dict(),
+            "filename": source.filename,
+            "space_id": notebook_id,
+            "chunks_indexed": chunk_count,
+            "status": "completed"
+        }
+    except QuotaExceededError:
+        raise
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.SOURCE_UPLOAD,
+            resource_type="source",
+            resource_id=getattr(source, "id", "-"),
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload={
+                **audit_payload,
+                **({"source_id": source.id} if getattr(source, "id", None) else {}),
+            },
+        )
+        raise
 
 @app.post("/api/v1/documents/upload")
 async def upload_document(
+    request: Request,
     space_id: str,
     file: UploadFile = File(...),
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Legacy upload route, backed by notebook sources."""
     _require_notebook_access(space_id, principal)
-    return await upload_source(space_id, file, principal)
+    return await upload_source(request, space_id, file, principal)
 
 
 # ---------------------------------------------------------------------------
@@ -826,12 +1122,36 @@ def get_chat_history(
 
 @app.delete("/api/v1/notebooks/{notebook_id}/history")
 def clear_chat_history(
+    request: Request,
     notebook_id: str,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Clear all chat history for a notebook. Returns count of deleted messages."""
-    _require_notebook_access(notebook_id, principal)
-    deleted = chat_history_store.clear(notebook_id)
+    audit_payload = {"notebook_id": notebook_id}
+    try:
+        _require_notebook_access(notebook_id, principal)
+        deleted = chat_history_store.clear(notebook_id)
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.CHAT_HISTORY_CLEAR,
+            resource_type="chat",
+            resource_id="-",
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.CHAT_HISTORY_CLEAR,
+        resource_type="chat",
+        resource_id="-",
+        parent_resource_id=notebook_id,
+        http_status=200,
+        payload={**audit_payload, "chat.history_turns": deleted},
+    )
     return {"deleted": deleted}
 
 
@@ -851,17 +1171,41 @@ def list_notes(
 
 @app.post("/api/v1/notebooks/{notebook_id}/notes", status_code=201)
 def create_note(
+    request: Request,
     notebook_id: str,
-    request: NoteCreateRequest,
+    payload: NoteCreateRequest,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Save an AI response as a note."""
-    _require_notebook_access(notebook_id, principal)
-    note = note_store.create(
-        notebook_id=notebook_id,
-        content=request.content,
-        citations=request.citations or [],
-        title=request.title,
+    audit_payload = {"notebook_id": notebook_id, "title": payload.title}
+    try:
+        _require_notebook_access(notebook_id, principal)
+        note = note_store.create(
+            notebook_id=notebook_id,
+            content=payload.content,
+            citations=payload.citations or [],
+            title=payload.title,
+        )
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.NOTE_CREATE,
+            resource_type="note",
+            resource_id="-",
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.NOTE_CREATE,
+        resource_type="note",
+        resource_id=note.id,
+        parent_resource_id=notebook_id,
+        http_status=201,
+        payload={**audit_payload, "note_id": note.id},
     )
     return note.to_dict()
 
@@ -882,35 +1226,96 @@ def get_note(
 
 @app.patch("/api/v1/notebooks/{notebook_id}/notes/{note_id}")
 def update_note(
+    request: Request,
     notebook_id: str,
     note_id: str,
-    request: NotePatchRequest,
+    payload: NotePatchRequest,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Update a note's title and/or content."""
-    _require_notebook_access(notebook_id, principal)
+    audit_payload = {
+        "notebook_id": notebook_id,
+        "note_id": note_id,
+        "title": payload.title,
+    }
     try:
+        _require_notebook_access(notebook_id, principal)
         note = note_store.update(
             notebook_id=notebook_id,
             note_id=note_id,
-            title=request.title,
-            content=request.content,
+            title=payload.title,
+            content=payload.content,
         )
     except KeyError:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.NOTE_UPDATE,
+            resource_type="note",
+            resource_id=note_id,
+            parent_resource_id=notebook_id,
+            http_status=404,
+            error_code=_audit_error_code(404),
+            payload=audit_payload,
+        )
         raise HTTPException(status_code=404, detail="Note not found")
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.NOTE_UPDATE,
+            resource_type="note",
+            resource_id=note_id,
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.NOTE_UPDATE,
+        resource_type="note",
+        resource_id=note.id,
+        parent_resource_id=notebook_id,
+        http_status=200,
+        payload={**audit_payload, "note_id": note.id, "title": note.title},
+    )
     return note.to_dict()
 
 
 @app.delete("/api/v1/notebooks/{notebook_id}/notes/{note_id}", status_code=204)
 def delete_note(
+    request: Request,
     notebook_id: str,
     note_id: str,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Delete a note."""
-    _require_notebook_access(notebook_id, principal)
-    if not note_store.delete(notebook_id, note_id):
-        raise HTTPException(status_code=404, detail="Note not found")
+    audit_payload = {"notebook_id": notebook_id, "note_id": note_id}
+    try:
+        _require_notebook_access(notebook_id, principal)
+        if not note_store.delete(notebook_id, note_id):
+            raise HTTPException(status_code=404, detail="Note not found")
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.NOTE_DELETE,
+            resource_type="note",
+            resource_id=note_id,
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.NOTE_DELETE,
+        resource_type="note",
+        resource_id=note_id,
+        parent_resource_id=notebook_id,
+        http_status=204,
+        payload=audit_payload,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -924,84 +1329,108 @@ class StudioGenerateRequest(BaseModel):
 
 @app.post("/api/v1/notebooks/{notebook_id}/studio/generate", status_code=201)
 async def generate_studio_output(
+    request: Request,
     notebook_id: str,
-    request: StudioGenerateRequest,
+    payload: StudioGenerateRequest,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Generate a structured text output from notebook sources using the local LLM."""
-    _require_notebook_access(notebook_id, principal)
-
-    # Validate output type
-    if request.output_type not in StudioOutputType.values():
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid output_type '{request.output_type}'. "
-                   f"Must be one of: {StudioOutputType.values()}"
-        )
-
-    # Resolve source_ids (use all READY sources if not specified)
-    source_ids = request.source_ids
-    if not source_ids:
-        all_sources = source_registry.list_by_notebook(notebook_id)
-        source_ids = [
-            s.id for s in all_sources
-            if getattr(s, "status", None) in ("ready", "READY")
-        ]
-
-    if not source_ids:
-        raise HTTPException(
-            status_code=422,
-            detail="No READY sources available in this notebook for generation."
-        )
-
-    # Retrieve context chunks
+    audit_payload = {"notebook_id": notebook_id}
     try:
-        chunks = retriever_engine.retrieve(
-            query=request.output_type,
-            top_k=20,
-            final_k=20,
-            source_ids=source_ids,
+        _require_notebook_access(notebook_id, principal)
+
+        # Validate output type
+        if payload.output_type not in StudioOutputType.values():
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid output_type '{payload.output_type}'. "
+                       f"Must be one of: {StudioOutputType.values()}"
+            )
+
+        # Resolve source_ids (use all READY sources if not specified)
+        source_ids = payload.source_ids
+        if not source_ids:
+            all_sources = source_registry.list_by_notebook(notebook_id)
+            source_ids = [
+                s.id for s in all_sources
+                if getattr(s, "status", None) in ("ready", "READY")
+            ]
+
+        if not source_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="No READY sources available in this notebook for generation."
+            )
+
+        # Retrieve context chunks
+        try:
+            chunks = retriever_engine.retrieve(
+                query=payload.output_type,
+                top_k=20,
+                final_k=20,
+                source_ids=source_ids,
+                notebook_id=notebook_id,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Retrieval error: {exc}") from exc
+
+        if not chunks:
+            raise HTTPException(
+                status_code=422,
+                detail="No relevant content found in the specified sources."
+            )
+
+        # Build prompt and invoke LLM
+        context_blocks = build_context_block(chunks)
+        studio_prompt = STUDIO_PROMPTS[payload.output_type].format(
+            context_blocks=context_blocks
+        )
+
+        try:
+            raw_response = invoke_local_llm(
+                system_prompt=studio_prompt,
+                user_query=f"请生成: {payload.output_type}",
+            )
+        except LLMUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        # Gateway validation (citations optional for studio outputs)
+        try:
+            _is_valid, safe_content, citations = AntiHallucinationGateway.validate_and_parse(
+                raw_response, chunks
+            )
+        except Exception:
+            # If gateway fails, use raw response with empty citations
+            safe_content = raw_response
+            citations = []
+
+        # Persist and return
+        output = studio_store.create(
             notebook_id=notebook_id,
+            output_type=payload.output_type,
+            content=safe_content,
+            citations=citations,
         )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Retrieval error: {exc}")
-
-    if not chunks:
-        raise HTTPException(
-            status_code=422,
-            detail="No relevant content found in the specified sources."
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.STUDIO_CREATE,
+            resource_type="studio",
+            resource_id="-",
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
         )
-
-    # Build prompt and invoke LLM
-    context_blocks = build_context_block(chunks)
-    studio_prompt = STUDIO_PROMPTS[request.output_type].format(
-        context_blocks=context_blocks
-    )
-
-    try:
-        raw_response = invoke_local_llm(
-            system_prompt=studio_prompt,
-            user_query=f"请生成: {request.output_type}",
-        )
-    except LLMUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-
-    # Gateway validation (citations optional for studio outputs)
-    try:
-        _is_valid, safe_content, citations = AntiHallucinationGateway.validate_and_parse(
-            raw_response, chunks
-        )
-    except Exception:
-        # If gateway fails, use raw response with empty citations
-        safe_content = raw_response
-        citations = []
-
-    # Persist and return
-    output = studio_store.create(
-        notebook_id=notebook_id,
-        output_type=request.output_type,
-        content=safe_content,
-        citations=citations,
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.STUDIO_CREATE,
+        resource_type="studio",
+        resource_id=output.id,
+        parent_resource_id=notebook_id,
+        http_status=201,
+        payload=audit_payload,
     )
     return output.to_dict()
 
@@ -1032,32 +1461,80 @@ def get_studio_output(
 
 @app.delete("/api/v1/notebooks/{notebook_id}/studio/{output_id}", status_code=204)
 def delete_studio_output(
+    request: Request,
     notebook_id: str,
     output_id: str,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Delete a studio output."""
-    _require_notebook_access(notebook_id, principal)
-    if not studio_store.delete(notebook_id, output_id):
-        raise HTTPException(status_code=404, detail="Studio output not found")
+    audit_payload = {"notebook_id": notebook_id}
+    try:
+        _require_notebook_access(notebook_id, principal)
+        if not studio_store.delete(notebook_id, output_id):
+            raise HTTPException(status_code=404, detail="Studio output not found")
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.STUDIO_DELETE,
+            resource_type="studio",
+            resource_id=output_id,
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.STUDIO_DELETE,
+        resource_type="studio",
+        resource_id=output_id,
+        parent_resource_id=notebook_id,
+        http_status=204,
+        payload=audit_payload,
+    )
 
 
 @app.post("/api/v1/notebooks/{notebook_id}/studio/{output_id}/save-as-note", status_code=201)
 def save_studio_as_note(
+    request: Request,
     notebook_id: str,
     output_id: str,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Save a studio output as a Note (persisted in NoteStore)."""
-    _require_notebook_access(notebook_id, principal)
-    output = studio_store.get(notebook_id, output_id)
-    if output is None:
-        raise HTTPException(status_code=404, detail="Studio output not found")
-    note = note_store.create(
-        notebook_id=notebook_id,
-        content=output.content,
-        citations=output.citations,
-        title=output.title,
+    audit_payload = {"notebook_id": notebook_id}
+    try:
+        _require_notebook_access(notebook_id, principal)
+        output = studio_store.get(notebook_id, output_id)
+        if output is None:
+            raise HTTPException(status_code=404, detail="Studio output not found")
+        note = note_store.create(
+            notebook_id=notebook_id,
+            content=output.content,
+            citations=output.citations,
+            title=output.title,
+        )
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.NOTE_CREATE,
+            resource_type="note",
+            resource_id="-",
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.NOTE_CREATE,
+        resource_type="note",
+        resource_id=note.id,
+        parent_resource_id=notebook_id,
+        http_status=201,
+        payload={**audit_payload, "note_id": note.id, "title": note.title},
     )
     return note.to_dict()
 
@@ -1068,6 +1545,7 @@ def save_studio_as_note(
 
 @app.post("/api/v1/notebooks/{notebook_id}/graph/generate", status_code=201)
 def generate_graph(
+    request: Request,
     notebook_id: str,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
@@ -1077,28 +1555,51 @@ def generate_graph(
 
     Returns the full graph JSON.
     """
-    _require_notebook_access(notebook_id, principal)
+    audit_payload = {"notebook_id": notebook_id}
+    try:
+        _require_notebook_access(notebook_id, principal)
 
-    sources = [
-        s for s in source_registry.list_by_notebook(notebook_id)
-        if s.status == "ready"
-    ]
-    if not sources:
-        raise HTTPException(status_code=422, detail="No ready sources in notebook")
+        sources = [
+            s for s in source_registry.list_by_notebook(notebook_id)
+            if s.status == "ready"
+        ]
+        if not sources:
+            raise HTTPException(status_code=422, detail="No ready sources in notebook")
 
-    source_ids = [s.id for s in sources]
-    chunks = retriever_engine.retrieve(
-        query="主要概念实体技术术语 key concepts technical terms",
-        top_k=50,
-        final_k=50,
-        source_ids=source_ids,
-        hybrid=False,      # pure vector for broad coverage
-        expand_query=False,
-        mmr_threshold=1.0, # no de-dup — we want max coverage for graph building
+        source_ids = [s.id for s in sources]
+        chunks = retriever_engine.retrieve(
+            query="主要概念实体技术术语 key concepts technical terms",
+            top_k=50,
+            final_k=50,
+            source_ids=source_ids,
+            hybrid=False,      # pure vector for broad coverage
+            expand_query=False,
+            mmr_threshold=1.0, # no de-dup — we want max coverage for graph building
+        )
+
+        graph = graph_extractor.extract(chunks)
+        graph_store.save(notebook_id, graph)
+    except HTTPException as exc:
+        _record_audit_failure(
+            request,
+            event=AuditEvent.GRAPH_GENERATE,
+            resource_type="graph",
+            resource_id=notebook_id,
+            parent_resource_id=notebook_id,
+            http_status=exc.status_code,
+            error_code=_audit_error_code(exc.status_code),
+            payload=audit_payload,
+        )
+        raise
+    _record_audit_success(
+        request,
+        event=AuditEvent.GRAPH_GENERATE,
+        resource_type="graph",
+        resource_id=notebook_id,
+        parent_resource_id=notebook_id,
+        http_status=201,
+        payload=audit_payload,
     )
-
-    graph = graph_extractor.extract(chunks)
-    graph_store.save(notebook_id, graph)
     return graph.to_dict()
 
 

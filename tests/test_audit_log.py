@@ -5,6 +5,7 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -14,6 +15,7 @@ from core.governance.audit_logger import AuditLogger
 from core.governance.audit_redact import encode_payload, redact
 from core.governance.audit_store import AuditRecord, AuditStore
 from core.storage.sqlite_db import get_connection, init_schema
+from tests.test_rate_limit import _import_main_api
 
 
 def _new_db(tmp_path: Path):
@@ -410,3 +412,252 @@ def test_audit_sqlite_failure_falls_back_to_json_log(caplog):
     ]
     assert "audit" in log_events
     assert "audit_append_failed" in log_events
+
+
+class _FakeNotebook:
+    def __init__(self, notebook_id: str, name: str, owner_id: str | None) -> None:
+        self.id = notebook_id
+        self.name = name
+        self.owner_id = owner_id
+        self.source_count = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "owner_id": self.owner_id,
+            "source_count": self.source_count,
+        }
+
+
+class _FakeNotebookStore:
+    def __init__(
+        self,
+        *,
+        notebook: _FakeNotebook | None = None,
+        create_error: Exception | None = None,
+    ) -> None:
+        self._notebook = notebook
+        self._create_error = create_error
+
+    def create(self, name: str, owner_id: str | None = None) -> _FakeNotebook:
+        if self._create_error is not None:
+            raise self._create_error
+        notebook = self._notebook or _FakeNotebook(str(uuid4()), name.strip(), owner_id)
+        notebook.name = name.strip()
+        notebook.owner_id = owner_id
+        return notebook
+
+    def get(self, notebook_id: str) -> _FakeNotebook | None:
+        if self._notebook and self._notebook.id == notebook_id:
+            return self._notebook
+        return None
+
+    def increment_source_count(self, notebook_id: str, delta: int) -> None:
+        if self._notebook and self._notebook.id == notebook_id:
+            self._notebook.source_count += delta
+
+
+class _FakeSource:
+    def __init__(self, source_id: str, filename: str, file_path: str) -> None:
+        self.id = source_id
+        self.filename = filename
+        self.file_path = file_path
+        self.status = "READY"
+        self.page_count = 2
+        self.chunk_count = 7
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "filename": self.filename,
+            "file_path": self.file_path,
+            "status": self.status,
+            "page_count": self.page_count,
+            "chunk_count": self.chunk_count,
+        }
+
+
+class _FakeSourceRegistry:
+    def __init__(self, spaces_dir: Path) -> None:
+        self.spaces_dir = spaces_dir
+        self._source: _FakeSource | None = None
+
+    def register(self, notebook_id: str, filename: str, file_path: str) -> _FakeSource:
+        self._source = _FakeSource("src-1", filename, file_path)
+        return self._source
+
+    def update_status(self, notebook_id: str, source_id: str, status: str, **kwargs) -> _FakeSource:
+        assert self._source is not None
+        self._source.status = status
+        if "page_count" in kwargs:
+            self._source.page_count = kwargs["page_count"]
+        if "chunk_count" in kwargs:
+            self._source.chunk_count = kwargs["chunk_count"]
+        return self._source
+
+
+def _fetch_latest_audit_row(db_path: Path, event: AuditEvent | str):
+    event_value = event.value if isinstance(event, AuditEvent) else str(event)
+    conn = get_connection(db_path)
+    try:
+        return conn.execute(
+            """
+            SELECT *
+            FROM audit_events
+            WHERE event = ?
+            ORDER BY ts_utc DESC
+            LIMIT 1
+            """,
+            (event_value,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def test_audit_logger_notebook_create_success(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    api_main = _import_main_api(tmp_path)
+    notebook = _FakeNotebook("nb-123", "Flight Controls", "alice")
+
+    with TestClient(api_main.app) as client:
+        api_main.notebook_store = _FakeNotebookStore(notebook=notebook)
+        response = client.post(
+            "/api/v1/notebooks",
+            headers={"x-api-key": "key-alice"},
+            json={"name": "Flight Controls"},
+        )
+
+    assert response.status_code == 201
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.NOTEBOOK_CREATE)
+    assert row is not None
+    assert row["outcome"] == "success"
+    assert row["resource_id"] == "nb-123"
+    assert row["principal_id"] == "alice"
+
+
+def test_audit_logger_notebook_create_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    api_main = _import_main_api(tmp_path)
+
+    with TestClient(api_main.app) as client:
+        api_main.notebook_store = _FakeNotebookStore(
+            create_error=ValueError("Notebook name is required")
+        )
+        response = client.post(
+            "/api/v1/notebooks",
+            headers={"x-api-key": "key-alice"},
+            json={"name": "   "},
+        )
+
+    assert response.status_code == 400
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.NOTEBOOK_CREATE)
+    assert row is not None
+    assert row["outcome"] == "failure"
+    assert row["error_code"] == "bad_request"
+
+
+def test_audit_logger_source_upload_redacts_filename(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    api_main = _import_main_api(tmp_path)
+    notebook = _FakeNotebook("nb-1", "Flight Controls", "alice")
+
+    with TestClient(api_main.app) as client:
+        api_main.notebook_store = _FakeNotebookStore(notebook=notebook)
+        api_main.source_registry = _FakeSourceRegistry(tmp_path / "spaces")
+        api_main.ingestion_service.process_file = lambda *args, **kwargs: (7, 2)
+        response = client.post(
+            "/api/v1/notebooks/nb-1/sources/upload",
+            headers={"x-api-key": "key-alice"},
+            files={"file": ("secret.pdf", b"%PDF-1.4\n%stub\n", "application/pdf")},
+        )
+
+    assert response.status_code == 200
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.SOURCE_UPLOAD)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    assert "secret.pdf" not in row["payload_json"]
+    assert payload["filename_sha256"] == "29af7f0168d2731e"
+    assert payload["source_id"] == "src-1"
+
+
+def test_audit_logger_chat_request_no_message_body(tmp_path, monkeypatch):
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    api_main = _import_main_api(tmp_path)
+    api_main.invoke_local_llm = lambda system_prompt, user_query: "<answer>safe response</answer>"
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: [
+        {"source_file": "manual.pdf", "page_number": 1, "content": "context", "bbox": None}
+    ]
+
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/v1/chat", json={"query": "hello world"})
+
+    assert response.status_code == 200
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.CHAT_REQUEST)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    assert payload["chat.message_length"] == 11
+    assert "hello world" not in row["payload_json"]
+
+
+def test_audit_logger_auth_disabled_uses_ip_principal(tmp_path, monkeypatch):
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    api_main = _import_main_api(tmp_path)
+    notebook = _FakeNotebook("nb-ip", "IP Notebook", None)
+
+    with TestClient(api_main.app) as client:
+        api_main.notebook_store = _FakeNotebookStore(notebook=notebook)
+        response = client.post(
+            "/api/v1/notebooks",
+            headers={"x-forwarded-for": "203.0.113.8"},
+            json={"name": "IP Notebook"},
+        )
+
+    assert response.status_code == 201
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.NOTEBOOK_CREATE)
+    assert row is not None
+    assert row["actor_type"] == "anonymous"
+    assert row["principal_id"] == "ip:203.0.113.8"
+
+
+def test_audit_logger_quota_denied_emits_event(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    monkeypatch.setenv("NOTEBOOKLM_UPLOAD_DAILY_BYTES", "1")
+    api_main = _import_main_api(tmp_path)
+    notebook = _FakeNotebook("nb-quota", "Quota Notebook", "alice")
+
+    with TestClient(api_main.app) as client:
+        api_main.notebook_store = _FakeNotebookStore(notebook=notebook)
+        api_main.source_registry = _FakeSourceRegistry(tmp_path / "spaces")
+        response = client.post(
+            "/api/v1/notebooks/nb-quota/sources/upload",
+            headers={"x-api-key": "key-alice"},
+            files={"file": ("secret.pdf", b"%PDF-1.4\n%quota\n", "application/pdf")},
+        )
+
+    assert response.status_code == 429
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.QUOTA_DENIED)
+    assert row is not None
+    assert row["outcome"] == "failure"
+    assert row["http_status"] == 429
+    payload = json.loads(row["payload_json"])
+    assert payload["quota.dimension"] == "upload_bytes"
+
+
+def test_audit_no_http_audit_endpoint_exposed(tmp_path, monkeypatch):
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    api_main = _import_main_api(tmp_path)
+
+    route_paths = {
+        route.path
+        for route in api_main.app.routes
+        if hasattr(route, "path")
+    }
+
+    assert not any(
+        path == "/audit"
+        or path.startswith("/audit/")
+        or path == "/api/v1/audit"
+        or path.startswith("/api/v1/audit/")
+        for path in route_paths
+    )

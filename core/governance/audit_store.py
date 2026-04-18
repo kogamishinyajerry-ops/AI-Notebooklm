@@ -23,18 +23,28 @@ class AuditRecord:
     schema_version: int = 1
 
 
-def _open_connection(db_path: Path):
+def _initialize_db(db_path: Path) -> None:
     from core.storage.sqlite_db import get_connection, init_schema
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = get_connection(db_path)
-    init_schema(conn)
-    return conn
+    try:
+        init_schema(conn)
+    finally:
+        conn.close()
+
+
+def _open_connection(db_path: Path):
+    from core.storage.sqlite_db import get_connection
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return get_connection(db_path)
 
 
 class AuditStore:
     def __init__(self, db_path: str | Path = Path("data/notebooks.db")) -> None:
         self.db_path = Path(db_path)
+        _initialize_db(self.db_path)
 
     def append(self, record: AuditRecord) -> None:
         conn = _open_connection(self.db_path)
