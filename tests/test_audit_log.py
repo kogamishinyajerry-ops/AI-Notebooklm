@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from core.governance.audit_events import AuditEvent
 from core.governance.audit_redact import encode_payload, redact
+from core.governance.audit_store import AuditRecord, AuditStore
 from core.storage.sqlite_db import get_connection, init_schema
 
 
@@ -211,3 +213,88 @@ def test_audit_redact_hashes_filename():
 
     assert "filename" not in payload
     assert payload["filename_sha256"] == "29af7f0168d2731e"
+
+
+def _make_record(*, event_id: str, principal_id: str = "alice", resource_id: str = "nb-1") -> AuditRecord:
+    return AuditRecord(
+        event_id=event_id,
+        ts_utc="2026-04-18T00:00:00.000000+00:00",
+        event=AuditEvent.NOTEBOOK_CREATE.value,
+        outcome="success",
+        actor_type="user",
+        principal_id=principal_id,
+        request_id=f"req-{event_id}",
+        remote_addr="127.0.0.1",
+        resource_type="notebook",
+        resource_id=resource_id,
+        parent_resource_id="-",
+        http_status=201,
+        error_code="-",
+        payload_json='{"title":"Flight Controls"}',
+        schema_version=1,
+    )
+
+
+def test_audit_append_persists_all_fields(tmp_path):
+    db_path = tmp_path / "audit.db"
+    store = AuditStore(db_path=db_path)
+    record = _make_record(event_id="evt-persist", resource_id="nb-persist")
+
+    store.append(record)
+
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM audit_events WHERE event_id = ?",
+            (record.event_id,),
+        ).fetchone()
+        assert row is not None
+        assert dict(row) == {
+            "event_id": record.event_id,
+            "ts_utc": record.ts_utc,
+            "event": record.event,
+            "outcome": record.outcome,
+            "actor_type": record.actor_type,
+            "principal_id": record.principal_id,
+            "request_id": record.request_id,
+            "remote_addr": record.remote_addr,
+            "resource_type": record.resource_type,
+            "resource_id": record.resource_id,
+            "parent_resource_id": record.parent_resource_id,
+            "http_status": record.http_status,
+            "error_code": record.error_code,
+            "payload_json": record.payload_json,
+            "schema_version": record.schema_version,
+        }
+    finally:
+        conn.close()
+
+
+def test_audit_append_concurrent_writers_no_loss(tmp_path):
+    db_path = tmp_path / "audit.db"
+    store = AuditStore(db_path=db_path)
+
+    def write_event(index: int) -> None:
+        store.append(
+            _make_record(
+                event_id=f"evt-{index}",
+                principal_id=f"user-{index % 4}",
+                resource_id=f"nb-{index % 7}",
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        list(executor.map(write_event, range(1000)))
+
+    conn = get_connection(db_path)
+    try:
+        counts = conn.execute(
+            """
+            SELECT COUNT(*) AS total_count, COUNT(DISTINCT event_id) AS distinct_event_ids
+            FROM audit_events
+            """
+        ).fetchone()
+        assert counts["total_count"] == 1000
+        assert counts["distinct_event_ids"] == 1000
+    finally:
+        conn.close()
