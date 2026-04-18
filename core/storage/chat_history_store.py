@@ -10,12 +10,14 @@ MAX_HISTORY=200 FIFO eviction enforced via SQL after each append.
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 from typing import List
 
 from core.ingestion.transaction import DEFAULT_SPACES_DIR, utc_now_iso
 from core.models.chat_message import ChatMessage
+from core.storage.exceptions import NotebookNotFound
 
 
 def _get_conn(db_path):
@@ -44,9 +46,7 @@ class ChatHistoryStore:
         self.spaces_dir = Path(spaces_dir)
 
     def _conn(self):
-        conn = _get_conn(self.db_path)
-        conn.execute("PRAGMA foreign_keys=OFF")
-        return conn
+        return _get_conn(self.db_path)
 
     def append(
         self,
@@ -67,19 +67,24 @@ class ChatHistoryStore:
         )
         conn = self._conn()
         try:
-            conn.execute(
-                """INSERT INTO chat_messages
-                   (id, notebook_id, role, content, citations,
-                    is_fully_verified, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    message.id, message.notebook_id, message.role,
-                    message.content,
-                    json.dumps(message.citations, ensure_ascii=False),
-                    int(message.is_fully_verified),
-                    message.created_at,
-                ),
-            )
+            try:
+                conn.execute(
+                    """INSERT INTO chat_messages
+                       (id, notebook_id, role, content, citations,
+                        is_fully_verified, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        message.id, message.notebook_id, message.role,
+                        message.content,
+                        json.dumps(message.citations, ensure_ascii=False),
+                        int(message.is_fully_verified),
+                        message.created_at,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if "FOREIGN KEY constraint failed" in str(exc):
+                    raise NotebookNotFound(notebook_id) from exc
+                raise
 
             # FIFO eviction — delete older messages beyond MAX_HISTORY
             conn.execute(

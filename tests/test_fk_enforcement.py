@@ -49,6 +49,27 @@ def test_migration_user_version_bumped(tmp_path, _import_sqlite_db):
         conn.close()
 
 
+def test_foreign_keys_pragma_enabled_on_every_connection(tmp_path, _import_sqlite_db):
+    sqlite_db = _import_sqlite_db
+    db_path = tmp_path / "fk.db"
+
+    conn = sqlite_db.get_connection(db_path)
+    sqlite_db.init_schema(conn)
+    conn.close()
+
+    from core.storage.chat_history_store import ChatHistoryStore
+    from core.storage.note_store import NoteStore
+    from core.storage.source_registry import SourceRegistry
+
+    for store_cls in (NoteStore, SourceRegistry, ChatHistoryStore):
+        store = store_cls(db_path=db_path)
+        store_conn = store._conn()
+        try:
+            assert store_conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        finally:
+            store_conn.close()
+
+
 def test_migration_is_idempotent(tmp_path, _import_sqlite_db):
     sqlite_db = _import_sqlite_db
     db_path = tmp_path / "fk.db"

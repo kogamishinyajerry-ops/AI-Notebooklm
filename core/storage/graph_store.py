@@ -10,12 +10,14 @@ nodes/edges/mindmap stored as JSON TEXT; in-memory BFS helpers unchanged.
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections import deque
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from core.ingestion.transaction import DEFAULT_SPACES_DIR, utc_now_iso
 from core.models.graph import KnowledgeGraph
+from core.storage.exceptions import NotebookNotFound
 
 
 def _get_conn(db_path):
@@ -38,28 +40,31 @@ class GraphStore:
         self.spaces_dir = Path(spaces_dir)
 
     def _conn(self):
-        conn = _get_conn(self.db_path)
-        conn.execute("PRAGMA foreign_keys=OFF")
-        return conn
+        return _get_conn(self.db_path)
 
     def save(self, notebook_id: str, graph: KnowledgeGraph) -> None:
         now = utc_now_iso()
         conn = self._conn()
         try:
-            conn.execute(
-                """INSERT OR REPLACE INTO knowledge_graphs
-                   (notebook_id, nodes, edges, mindmap, generated_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    notebook_id,
-                    json.dumps([n.to_dict() for n in graph.nodes], ensure_ascii=False),
-                    json.dumps([e.to_dict() for e in graph.edges], ensure_ascii=False),
-                    json.dumps(graph.mindmap.to_dict())
-                    if graph.mindmap else None,
-                    graph.generated_at or "",
-                    now,
-                ),
-            )
+            try:
+                conn.execute(
+                    """INSERT OR REPLACE INTO knowledge_graphs
+                       (notebook_id, nodes, edges, mindmap, generated_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        notebook_id,
+                        json.dumps([n.to_dict() for n in graph.nodes], ensure_ascii=False),
+                        json.dumps([e.to_dict() for e in graph.edges], ensure_ascii=False),
+                        json.dumps(graph.mindmap.to_dict())
+                        if graph.mindmap else None,
+                        graph.generated_at or "",
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if "FOREIGN KEY constraint failed" in str(exc):
+                    raise NotebookNotFound(notebook_id) from exc
+                raise
             conn.commit()
         finally:
             conn.close()

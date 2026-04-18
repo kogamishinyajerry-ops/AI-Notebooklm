@@ -9,12 +9,14 @@ No per-notebook JSON files.
 
 from __future__ import annotations
 
+import sqlite3
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
 from core.ingestion.transaction import DEFAULT_SPACES_DIR, utc_now_iso
 from core.models.source import Source, SourceStatus
+from core.storage.exceptions import NotebookNotFound
 
 
 def _get_conn(db_path):
@@ -40,9 +42,7 @@ class SourceRegistry:
         self.spaces_dir = Path(spaces_dir)
 
     def _conn(self):
-        conn = _get_conn(self.db_path)
-        conn.execute("PRAGMA foreign_keys=OFF")
-        return conn
+        return _get_conn(self.db_path)
 
     def register(
         self, notebook_id: str, filename: str, file_path: str
@@ -61,18 +61,23 @@ class SourceRegistry:
         )
         conn = self._conn()
         try:
-            conn.execute(
-                """INSERT INTO sources
-                   (id, notebook_id, filename, file_path, status,
-                    page_count, chunk_count, created_at, updated_at, error_message)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    source.id, source.notebook_id, source.filename,
-                    source.file_path, source.status.value,
-                    source.page_count, source.chunk_count,
-                    source.created_at, source.updated_at, source.error_message,
-                ),
-            )
+            try:
+                conn.execute(
+                    """INSERT INTO sources
+                       (id, notebook_id, filename, file_path, status,
+                        page_count, chunk_count, created_at, updated_at, error_message)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        source.id, source.notebook_id, source.filename,
+                        source.file_path, source.status.value,
+                        source.page_count, source.chunk_count,
+                        source.created_at, source.updated_at, source.error_message,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if "FOREIGN KEY constraint failed" in str(exc):
+                    raise NotebookNotFound(notebook_id) from exc
+                raise
             conn.commit()
         finally:
             conn.close()
