@@ -43,6 +43,7 @@ def _parse_positive_int_env(env_name: str, default: int) -> int:
 def _open_connection(db_path: Path):
     from core.storage.sqlite_db import get_connection, init_schema
 
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = get_connection(db_path)
     init_schema(conn)
     return conn
@@ -189,4 +190,3 @@ class NotebookCountCap:
         if current_count >= self.max_count:
             raise QuotaExceededError("notebook_count")
         return current_count
-

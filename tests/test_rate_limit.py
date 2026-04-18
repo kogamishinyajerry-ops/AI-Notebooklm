@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import concurrent.futures
 import importlib
+import sys
+import types
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -111,6 +114,148 @@ def _load_rate_limit_module():
     import core.governance.rate_limit as rate_limit_module
 
     return importlib.reload(rate_limit_module)
+
+
+def _stub_module(name: str) -> types.ModuleType:
+    module = types.ModuleType(name)
+    sys.modules[name] = module
+    return module
+
+
+def _install_main_api_stubs(tmp_path: Path) -> None:
+    if "services.ingestion" not in sys.modules:
+        _stub_module("services.ingestion")
+    if "services.ingestion.service" not in sys.modules:
+        service_mod = _stub_module("services.ingestion.service")
+
+        class _FakeIngestionService:
+            def __init__(self):
+                self.vector_store = MagicMock()
+
+            def process_file(self, *args, **kwargs):
+                return 0, 0
+
+        service_mod.IngestionService = _FakeIngestionService
+
+    if "services.ingestion.filenames" not in sys.modules:
+        filenames_mod = _stub_module("services.ingestion.filenames")
+        filenames_mod.safe_upload_path = lambda upload_dir, filename, content_type=None: Path(upload_dir) / (filename or "upload.pdf")
+        filenames_mod.validate_pdf_magic = lambda file_obj: None
+
+    if "core.ingestion.transaction" not in sys.modules:
+        transaction_mod = _stub_module("core.ingestion.transaction")
+        transaction_mod.DEFAULT_SPACES_DIR = tmp_path / "spaces"
+        transaction_mod.IngestTransaction = MagicMock
+        transaction_mod.cleanup_committed_transactions = MagicMock()
+        transaction_mod.iter_space_ids = MagicMock(return_value=[])
+        transaction_mod.recover_incomplete_transactions = MagicMock()
+        transaction_mod.summarize_transaction_health = MagicMock(return_value={})
+        transaction_mod.utc_now_iso = lambda: "2026-01-01T00:00:00+00:00"
+
+    if "core.retrieval.retriever" not in sys.modules:
+        retriever_mod = _stub_module("core.retrieval.retriever")
+
+        class _FakeRetrieverEngine:
+            def __init__(self):
+                self.graph_store = None
+                self.graph_extractor = None
+
+            def retrieve(self, *args, **kwargs):
+                return []
+
+        retriever_mod.RetrieverEngine = _FakeRetrieverEngine
+
+    if "core.governance.prompts" not in sys.modules:
+        prompts_mod = _stub_module("core.governance.prompts")
+        prompts_mod.QA_SYSTEM_PROMPT = "{context_blocks}"
+        prompts_mod.build_context_block = lambda contexts: str(contexts)
+        prompts_mod.STUDIO_PROMPTS = {
+            key: "{context_blocks}"
+            for key in ("summary", "faq", "briefing", "glossary", "action_items")
+        }
+
+    if "core.governance.gateway" not in sys.modules:
+        gateway_mod = _stub_module("core.governance.gateway")
+        gateway_mod.AntiHallucinationGateway = type(
+            "_Gateway",
+            (),
+            {
+                "validate_and_parse": staticmethod(
+                    lambda raw_response, contexts: (True, "safe response", [])
+                )
+            },
+        )
+
+    if "core.models.source" not in sys.modules:
+        source_mod = _stub_module("core.models.source")
+
+        class _SourceStatus:
+            PROCESSING = "PROCESSING"
+            READY = "READY"
+            FAILED = "FAILED"
+
+        source_mod.SourceStatus = _SourceStatus
+
+    if "core.models.studio_output" not in sys.modules:
+        studio_output_mod = _stub_module("core.models.studio_output")
+        studio_output_mod.StudioOutputType = type(
+            "_StudioOutputType",
+            (),
+            {"values": staticmethod(lambda: ["summary"])},
+        )
+
+    if "core.knowledge.graph_extractor" not in sys.modules:
+        graph_mod = _stub_module("core.knowledge.graph_extractor")
+        graph_mod.GraphExtractor = type("_GraphExtractor", (), {})
+
+    if "core.llm.vllm_client" not in sys.modules:
+        llm_mod = _stub_module("core.llm.vllm_client")
+
+        class _LLMConfigurationError(Exception):
+            pass
+
+        llm_mod.LLMConfigurationError = _LLMConfigurationError
+        llm_mod.get_local_llm_config = lambda: SimpleNamespace(
+            base_url="http://localhost:8000/v1",
+            model_name="stub-model",
+        )
+        llm_mod.probe_local_llm = lambda: {"status": "ok"}
+
+    for module_name in (
+        "core.storage.notebook_store",
+        "core.storage.source_registry",
+        "core.storage.note_store",
+        "core.storage.chat_history_store",
+        "core.storage.studio_store",
+        "core.storage.graph_store",
+    ):
+        if module_name not in sys.modules:
+            storage_mod = _stub_module(module_name)
+            class_name = "".join(part.capitalize() for part in module_name.rsplit(".", 1)[-1].split("_"))
+            storage_class = type(
+                class_name,
+                (),
+                {
+                    "__init__": lambda self, *args, **kwargs: None,
+                    "get": lambda self, notebook_id=None: None,
+                    "list_by_notebook": lambda self, notebook_id=None: [],
+                    "update": lambda self, *args, **kwargs: None,
+                },
+            )
+            setattr(storage_mod, class_name, storage_class)
+
+
+def _import_main_api(tmp_path: Path):
+    _install_main_api_stubs(tmp_path)
+    sys.modules.pop("apps.api.main", None)
+    import apps.api.main as api_main
+
+    api_main = importlib.reload(api_main)
+    api_main._DATA_DIR = tmp_path / "data"
+    api_main._DATA_DIR.mkdir(parents=True, exist_ok=True)
+    api_main._DB_PATH = api_main._DATA_DIR / "notebooks.db"
+    api_main.DEFAULT_SPACES_DIR = tmp_path / "spaces"
+    return api_main
 
 
 def test_chat_rate_limit_enforced(fresh_rate_limit_state):
@@ -289,4 +434,27 @@ def test_auth_disabled_falls_back_to_ip(fresh_rate_limit_state, monkeypatch):
     assert (
         blocked.json()["detail"]
         == f"Rate limit exceeded: {rate_limit_module.CHAT_RATE_DIMENSION}"
+    )
+
+
+@pytest.mark.skipif(True, reason="Reserved for V4.2-T3 admin role bypass.")
+def test_admin_role_bypass_quota():
+    pass
+
+
+def test_multi_worker_warning_emitted(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    caplog.set_level("INFO", logger="comac.rate_limit")
+
+    api_main = _import_main_api(tmp_path)
+    api_main.upload_quota = None
+    api_main.notebook_cap = None
+
+    with TestClient(api_main.app) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+
+    assert any(
+        "rate_limit.multi_worker_warning" in record.getMessage()
+        for record in caplog.records
     )
