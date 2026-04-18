@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 import re
@@ -12,6 +13,19 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from core.observability.logging_utils import emit_json_log
+
+
+# Per-request admin flag. slowapi's exempt_when signature is () -> bool, so it
+# cannot receive the Request; we rely on the auth dep layer to mark the flag
+# before the limiter fires.
+_is_admin_request: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "comac_rate_limit_is_admin", default=False
+)
+
+
+def mark_admin_request(is_admin: bool) -> None:
+    """Called by the auth dep after resolving principal.is_admin."""
+    _is_admin_request.set(is_admin)
 
 
 logger = logging.getLogger("comac.rate_limit")
@@ -47,6 +61,16 @@ def _principal_key(request: Request) -> str:
     if principal_id:
         return f"principal:{principal_id}"
     return f"ip:{get_remote_address(request)}"
+
+
+def is_admin_exempt() -> bool:
+    """slowapi exempt_when callable (zero-arg in slowapi 0.1.9).
+
+    Reads the per-request admin flag set by :func:`mark_admin_request` from
+    the auth dep. If the flag was never set (auth disabled, anonymous path),
+    returns False so the normal limit applies.
+    """
+    return _is_admin_request.get()
 
 
 def _build_rate_limit_payload(

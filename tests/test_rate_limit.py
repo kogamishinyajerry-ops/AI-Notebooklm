@@ -573,9 +573,81 @@ def test_auth_disabled_falls_back_to_ip(fresh_rate_limit_state, monkeypatch):
     )
 
 
-@pytest.mark.skipif(True, reason="Reserved for V4.2-T3 admin role bypass.")
-def test_admin_role_bypass_quota():
-    pass
+def _build_admin_aware_chat_client(rate_limit_module) -> TestClient:
+    """Chat client that attaches principal (with is_admin) from headers.
+
+    Headers honored:
+      x-principal-id — principal id
+      x-is-admin     — "1" to flag as admin
+    """
+    app = FastAPI()
+    rate_limit_module.setup_rate_limit(app)
+    app.add_middleware(SlowAPIMiddleware)
+
+    @app.middleware("http")
+    async def add_principal(request: Request, call_next):
+        principal_id = request.headers.get("x-principal-id")
+        if principal_id:
+            is_admin = request.headers.get("x-is-admin") == "1"
+            request.state.principal = SimpleNamespace(
+                principal_id=principal_id, is_admin=is_admin
+            )
+            rate_limit_module.mark_admin_request(is_admin)
+        else:
+            rate_limit_module.mark_admin_request(False)
+        return await call_next(request)
+
+    @app.post("/api/v1/chat")
+    @rate_limit_module.limiter.limit(
+        rate_limit_module._get_chat_rate,
+        error_message=rate_limit_module.CHAT_RATE_EXCEEDED_DETAIL,
+        exempt_when=rate_limit_module.is_admin_exempt,
+    )
+    async def chat(request: Request):
+        return {"ok": True}
+
+    return TestClient(app)
+
+
+def test_admin_role_bypass_quota(fresh_rate_limit_state, monkeypatch):
+    """V4.2-T3 Step 5: admin principals bypass the chat rate limit.
+
+    Non-admin caller: hits the limit at N requests → 429.
+    Admin caller: same endpoint, 5N requests all return 200.
+    """
+    monkeypatch.setenv("NOTEBOOKLM_CHAT_RATE", "3/minute")
+    rate_limit_module = _load_rate_limit_module()
+
+    # Non-admin baseline: 4th request blocked.
+    non_admin_client = _build_admin_aware_chat_client(rate_limit_module)
+    for _ in range(3):
+        r = non_admin_client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+        assert r.status_code == 200
+    blocked = non_admin_client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+    assert blocked.status_code == 429
+
+    # Admin caller on a fresh app: 15 requests all pass (5× the limit).
+    admin_client = _build_admin_aware_chat_client(rate_limit_module)
+    for _ in range(15):
+        r = admin_client.post(
+            "/api/v1/chat",
+            headers={"x-principal-id": "root", "x-is-admin": "1"},
+        )
+        assert r.status_code == 200, r.text
+
+
+def test_is_admin_exempt_reads_contextvar():
+    """is_admin_exempt() returns the contextvar set by mark_admin_request."""
+    rate_limit_module = _load_rate_limit_module()
+
+    rate_limit_module.mark_admin_request(False)
+    assert rate_limit_module.is_admin_exempt() is False
+
+    rate_limit_module.mark_admin_request(True)
+    assert rate_limit_module.is_admin_exempt() is True
+
+    # Reset for isolation between tests.
+    rate_limit_module.mark_admin_request(False)
 
 
 def test_multi_worker_warning_emitted(tmp_path, monkeypatch, caplog):

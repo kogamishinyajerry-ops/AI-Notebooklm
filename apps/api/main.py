@@ -58,7 +58,9 @@ from core.governance.quota_store import DailyUploadQuota, NotebookCountCap, Quot
 from core.governance.rate_limit import (
     CHAT_RATE_EXCEEDED_DETAIL,
     _get_chat_rate,
+    is_admin_exempt,
     limiter,
+    mark_admin_request,
     rate_limit_exception_handler,
     setup_rate_limit,
 )
@@ -229,6 +231,7 @@ def _principal_owner_id(principal: Optional[AuthPrincipal]) -> Optional[str]:
 def get_current_principal(request: Request) -> Optional[AuthPrincipal]:
     principal = _auth_get_current_principal(request)
     request.state.principal = principal
+    mark_admin_request(bool(getattr(principal, "is_admin", False)))
     return principal
 
 
@@ -705,7 +708,11 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
         ) from exc
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
-@limiter.limit(_get_chat_rate, error_message=CHAT_RATE_EXCEEDED_DETAIL)
+@limiter.limit(
+    _get_chat_rate,
+    error_message=CHAT_RATE_EXCEEDED_DETAIL,
+    exempt_when=is_admin_exempt,
+)
 async def chat_endpoint(
     request: Request,
     chat_request: ChatRequest,
