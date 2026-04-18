@@ -19,8 +19,8 @@ Items stay here until resolved or explicitly retired with a decision record.
 
 - **Severity:** P1
 - **Detected:** 2026-04-18, observed on `main` @ `a8ae8dc` and reproduced on `19f97cd` (post V4.2-T4 merge).
-- **Owner:** Claude Code (V4.3 planning scope)
-- **Status:** Open — accepted for V4.2 release
+- **Owner:** Claude Code (V4.3 W-V43-3)
+- **Status:** **Resolved** (2026-04-18) — see Resolution section below. Entry retained for history.
 
 ### Symptom
 
@@ -57,8 +57,36 @@ Touching retrieval-quality test plumbing risks perturbing the C2 sentinel, which
 - Subset and full suite both green under any file ordering.
 - Move entry to `## Resolved` section with fix commit hash.
 
+### Resolution (2026-04-18)
+
+- **Root cause (confirmed — not speculative):** five test modules —
+  `test_rate_limit.py`, `test_auth_isolation.py`, `test_observability.py`,
+  `test_llm_health.py`, `test_studio.py` — each conditionally install a
+  stub `core.retrieval.retriever` module guarded by
+  `if "core.retrieval.retriever" not in sys.modules`. The stub replaces
+  `RetrieverEngine` with a `_FakeRetrieverEngine` that lacks `_rrf_fuse`.
+- **Why the full suite passed by accident:** alphabetical ordering put at
+  least one test that imports the *real* `core.retrieval.retriever` before
+  the stubbers, so their guards skipped. The 8-file subset broke that
+  accident: nothing upstream imported the real module, so the first stubber
+  won the race and poisoned every downstream retrieval test with the
+  attribute-less `_FakeRetrieverEngine`.
+- **Fix:** `tests/conftest.py` now pre-imports `core.retrieval.retriever`
+  at conftest module-load time (same pattern it already uses for
+  `torch`, `transformers`, `sentence_transformers`, and
+  `core.ingestion.transaction`). Result: every stubber's guard finds the
+  real module and skips — the subset passes under any ordering.
+- **Why not fix the test files instead:** five identical copies of the
+  guard exist in five files; fixing them individually is churn and future
+  regressions are likely. The conftest-level pre-import is a single
+  load-bearing line that makes the stubbers self-skip.
+- **Evidence:**
+  - 8-file subset (previously 7 fail + 8 error): now **114 passed**.
+  - Full suite: **390 passed** (unchanged).
+  - C2 retrieval sentinel: **8 passed** (unchanged).
+
 ---
 
 ## Resolved
 
-_(none yet)_
+- R-2604-01 (2026-04-18, fix commit on branch `fix/v4-3-test-isolation-r2604-01`).

@@ -59,6 +59,32 @@ try:
 except (ImportError, AttributeError):
     pass
 
+# R-2604-01: Pre-import every core module that test modules conditionally
+# stub behind `if "<mod>" not in sys.modules`. The stubbers (test_rate_limit,
+# test_auth_isolation, test_observability, test_llm_health, test_studio,
+# test_cross_notebook_isolation) all check module presence and skip stubbing
+# if already imported. By pre-importing the real modules at conftest load
+# (pytest imports conftest before collecting tests), the guards self-skip
+# and the real modules survive into the retrieval-quality tests. Without
+# this, subset runs that schedule any stubber before retrieval tests leave
+# fake modules (e.g. `_FakeRetrieverEngine` without `_rrf_fuse`) in place.
+# The full-suite alphabetical order happens to avoid this by accident.
+# See docs/architectural_risk_register.md — R-2604-01.
+_R2604_FRAGILE_GUARD_MODULES = (
+    "core.retrieval.retriever",
+    "core.knowledge.graph_extractor",
+    "core.governance.gateway",
+    "core.governance.prompts",
+    "core.llm.vllm_client",
+    "core.models.source",
+    "core.models.studio_output",
+)
+for _mod_name in _R2604_FRAGILE_GUARD_MODULES:
+    try:
+        __import__(_mod_name)
+    except ImportError:
+        pass  # offline / missing optional deps — accept gracefully
+
 
 
 @pytest.fixture(scope="session", autouse=False)
