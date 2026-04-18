@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import concurrent.futures
+import importlib
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
+from slowapi.middleware import SlowAPIMiddleware
 
 from core.governance.quota_store import DailyUploadQuota, NotebookCountCap, QuotaExceededError
 from core.storage.sqlite_db import get_connection, init_schema
@@ -72,6 +77,92 @@ def fresh_rate_limit_state(tmp_path, monkeypatch) -> Path:
     conn.commit()
     conn.close()
     return db_path
+
+
+def _build_chat_client(
+    rate_limit_module,
+    *,
+    inject_principal: bool = False,
+) -> TestClient:
+    app = FastAPI()
+    rate_limit_module.setup_rate_limit(app)
+    app.add_middleware(SlowAPIMiddleware)
+
+    if inject_principal:
+        @app.middleware("http")
+        async def add_principal(request: Request, call_next):
+            principal_id = request.headers.get("x-principal-id")
+            if principal_id:
+                request.state.principal = SimpleNamespace(principal_id=principal_id)
+            return await call_next(request)
+
+    @app.post("/api/v1/chat")
+    @rate_limit_module.limiter.limit(
+        rate_limit_module._get_chat_rate,
+        error_message=rate_limit_module.CHAT_RATE_EXCEEDED_DETAIL,
+    )
+    async def chat(request: Request):
+        return {"ok": True}
+
+    return TestClient(app)
+
+
+def _load_rate_limit_module():
+    import core.governance.rate_limit as rate_limit_module
+
+    return importlib.reload(rate_limit_module)
+
+
+def test_chat_rate_limit_enforced(fresh_rate_limit_state):
+    rate_limit_module = _load_rate_limit_module()
+    client = _build_chat_client(rate_limit_module, inject_principal=True)
+
+    for _ in range(30):
+        response = client.post(
+            "/api/v1/chat",
+            headers={"x-principal-id": "alice"},
+        )
+        assert response.status_code == 200
+
+    response = client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == rate_limit_module.CHAT_RATE_EXCEEDED_DETAIL
+
+
+def test_chat_rate_limit_per_principal_isolation(fresh_rate_limit_state):
+    rate_limit_module = _load_rate_limit_module()
+    client = _build_chat_client(rate_limit_module, inject_principal=True)
+
+    for _ in range(30):
+        response = client.post(
+            "/api/v1/chat",
+            headers={"x-principal-id": "alice"},
+        )
+        assert response.status_code == 200
+
+    alice_limited = client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+    bob_allowed = client.post("/api/v1/chat", headers={"x-principal-id": "bob"})
+
+    assert alice_limited.status_code == 429
+    assert bob_allowed.status_code == 200
+
+
+def test_429_response_format(fresh_rate_limit_state, monkeypatch):
+    monkeypatch.setenv("NOTEBOOKLM_CHAT_RATE", "1/minute")
+    rate_limit_module = _load_rate_limit_module()
+    client = _build_chat_client(rate_limit_module, inject_principal=True)
+
+    allowed = client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+    blocked = client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+
+    assert allowed.status_code == 200
+    assert blocked.status_code == 429
+    assert blocked.json() == {
+        "detail": rate_limit_module.CHAT_RATE_EXCEEDED_DETAIL,
+        "retry_after": 60,
+    }
+    assert blocked.headers["Retry-After"] == "60"
 
 
 def test_upload_daily_quota_enforced(fresh_rate_limit_state):
@@ -148,3 +239,54 @@ def test_daily_upload_usage_table_atomic(fresh_rate_limit_state):
 
     assert len(results) == 20
     assert store.get_usage("alice") == 20 * chunk_size
+
+
+def test_env_override_chat_rate(fresh_rate_limit_state, monkeypatch):
+    monkeypatch.setenv("NOTEBOOKLM_CHAT_RATE", "5/minute")
+    rate_limit_module = _load_rate_limit_module()
+    client = _build_chat_client(rate_limit_module, inject_principal=True)
+
+    for _ in range(5):
+        response = client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+        assert response.status_code == 200
+
+    blocked = client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+
+    assert blocked.status_code == 429
+    assert blocked.json()["detail"] == rate_limit_module.CHAT_RATE_EXCEEDED_DETAIL
+
+
+def test_env_override_invalid_format_fallback(fresh_rate_limit_state, monkeypatch, caplog):
+    monkeypatch.setenv("NOTEBOOKLM_CHAT_RATE", "invalid")
+    caplog.set_level("WARNING", logger="comac.rate_limit")
+
+    rate_limit_module = _load_rate_limit_module()
+    client = _build_chat_client(rate_limit_module, inject_principal=True)
+
+    assert rate_limit_module._get_chat_rate() == "30/minute"
+    assert any(
+        "NOTEBOOKLM_CHAT_RATE='invalid' is invalid" in record.getMessage()
+        for record in caplog.records
+    )
+
+    response = client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+    assert response.status_code == 200
+
+
+def test_auth_disabled_falls_back_to_ip(fresh_rate_limit_state, monkeypatch):
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.setenv("NOTEBOOKLM_CHAT_RATE", "5/minute")
+    rate_limit_module = _load_rate_limit_module()
+    client = _build_chat_client(rate_limit_module, inject_principal=False)
+
+    for _ in range(5):
+        response = client.post("/api/v1/chat")
+        assert response.status_code == 200
+
+    blocked = client.post("/api/v1/chat")
+
+    assert blocked.status_code == 429
+    assert (
+        blocked.json()["detail"]
+        == f"Rate limit exceeded: {rate_limit_module.CHAT_RATE_DIMENSION}"
+    )
