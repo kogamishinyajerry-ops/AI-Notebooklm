@@ -83,6 +83,7 @@ Notes:
 
 - No separate quota table is used.
 - The cap checks `SELECT COUNT(*) FROM notebooks WHERE owner_id = ?`.
+- Notebook creation is serialized inside a SQLite write transaction to avoid concurrent cap bypass.
 - Deleting a notebook immediately reduces the counted total.
 
 ## Multi-Worker Limitation
@@ -151,6 +152,7 @@ Check logs for:
 ## C1 Notes
 
 - `slowapi` and `limits` are pure Python in-process dependencies.
+- This implementation is validated against `slowapi==0.1.9` and `limits==4.2`.
 - No external quota service is required.
 - No telemetry or network I/O is introduced by this feature.
 

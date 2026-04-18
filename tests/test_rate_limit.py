@@ -19,6 +19,28 @@ from core.governance.quota_store import DailyUploadQuota, NotebookCountCap, Quot
 from core.storage.sqlite_db import get_connection, init_schema
 
 
+_STUBBED_MAIN_API_MODULES = (
+    "apps.api.main",
+    "services.ingestion",
+    "services.ingestion.service",
+    "services.ingestion.filenames",
+    "core.ingestion.transaction",
+    "core.retrieval.retriever",
+    "core.governance.prompts",
+    "core.governance.gateway",
+    "core.models.source",
+    "core.models.studio_output",
+    "core.knowledge.graph_extractor",
+    "core.llm.vllm_client",
+    "core.storage.notebook_store",
+    "core.storage.source_registry",
+    "core.storage.note_store",
+    "core.storage.chat_history_store",
+    "core.storage.studio_store",
+    "core.storage.graph_store",
+)
+
+
 class _TimeTravel:
     def __init__(self) -> None:
         self._now = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -57,6 +79,18 @@ def api_keys_env(monkeypatch):
     monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice,bob:key-bob")
     yield
     monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def cleanup_stubbed_main_api_modules():
+    yield
+    sys.modules.pop("apps.api.main", None)
+    for module_name in _STUBBED_MAIN_API_MODULES:
+        if module_name == "apps.api.main":
+            continue
+        module = sys.modules.get(module_name)
+        if getattr(module, "__rate_limit_stub__", False):
+            sys.modules.pop(module_name, None)
 
 
 @pytest.fixture
@@ -118,6 +152,7 @@ def _load_rate_limit_module():
 
 def _stub_module(name: str) -> types.ModuleType:
     module = types.ModuleType(name)
+    module.__rate_limit_stub__ = True
     sys.modules[name] = module
     return module
 
@@ -292,6 +327,31 @@ def test_chat_rate_limit_per_principal_isolation(fresh_rate_limit_state):
     assert bob_allowed.status_code == 200
 
 
+def test_chat_rate_limit_state_resets_per_app_instance(fresh_rate_limit_state):
+    rate_limit_module = _load_rate_limit_module()
+    first_client = _build_chat_client(rate_limit_module, inject_principal=True)
+
+    for _ in range(30):
+        response = first_client.post(
+            "/api/v1/chat",
+            headers={"x-principal-id": "alice"},
+        )
+        assert response.status_code == 200
+
+    assert (
+        first_client.post("/api/v1/chat", headers={"x-principal-id": "alice"}).status_code
+        == 429
+    )
+
+    second_client = _build_chat_client(rate_limit_module, inject_principal=True)
+    fresh_response = second_client.post(
+        "/api/v1/chat",
+        headers={"x-principal-id": "alice"},
+    )
+
+    assert fresh_response.status_code == 200
+
+
 def test_429_response_format(fresh_rate_limit_state, monkeypatch):
     monkeypatch.setenv("NOTEBOOKLM_CHAT_RATE", "1/minute")
     rate_limit_module = _load_rate_limit_module()
@@ -331,6 +391,17 @@ def test_upload_quota_persists_across_restart(fresh_rate_limit_state):
         restarted_store.check_and_record("alice", 200 * 1024 * 1024)
 
 
+def test_upload_quota_rejected_write_does_not_change_usage(fresh_rate_limit_state):
+    store = DailyUploadQuota(db_path=fresh_rate_limit_state)
+
+    assert store.check_and_record("alice", 499 * 1024 * 1024) == 499 * 1024 * 1024
+
+    with pytest.raises(QuotaExceededError):
+        store.check_and_record("alice", 2 * 1024 * 1024)
+
+    assert store.get_usage("alice") == 499 * 1024 * 1024
+
+
 def test_upload_quota_resets_next_day(fresh_rate_limit_state, time_travel):
     time_travel.set(2026, 1, 1)
     store = DailyUploadQuota(db_path=fresh_rate_limit_state, now_fn=time_travel.now)
@@ -365,6 +436,49 @@ def test_notebook_cap_per_owner(fresh_rate_limit_state):
         cap.check("alice")
 
     assert cap.check("bob") == 1
+
+
+def test_notebook_cap_serializes_concurrent_creates(fresh_rate_limit_state):
+    cap = NotebookCountCap(db_path=fresh_rate_limit_state)
+    for index in range(49):
+        _insert_notebook(fresh_rate_limit_state, "alice", index)
+
+    def create_once() -> str:
+        def _insert(conn):
+            conn.execute(
+                """
+                INSERT INTO notebooks (id, name, created_at, updated_at, source_count, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid4()),
+                    "alice-concurrent",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                    0,
+                    "alice",
+                ),
+            )
+            return "created"
+
+        return cap.execute_with_slot("alice", _insert)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(create_once) for _ in range(10)]
+
+    created = 0
+    blocked = 0
+    for future in futures:
+        try:
+            assert future.result() == "created"
+            created += 1
+        except QuotaExceededError as exc:
+            assert exc.detail == "Rate limit exceeded: notebook_count"
+            blocked += 1
+
+    assert created == 1
+    assert blocked == 9
+    assert cap.count("alice") == 50
 
 
 def test_daily_upload_usage_table_atomic(fresh_rate_limit_state):
@@ -415,6 +529,29 @@ def test_env_override_invalid_format_fallback(fresh_rate_limit_state, monkeypatc
 
     response = client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
     assert response.status_code == 200
+
+
+def test_auth_disabled_key_func_uses_client_ip():
+    rate_limit_module = _load_rate_limit_module()
+    request_a = Request(
+        {
+            "type": "http",
+            "headers": [],
+            "client": ("10.0.0.1", 1234),
+            "state": {},
+        }
+    )
+    request_b = Request(
+        {
+            "type": "http",
+            "headers": [],
+            "client": ("10.0.0.2", 1234),
+            "state": {},
+        }
+    )
+
+    assert rate_limit_module._principal_key(request_a) == "ip:10.0.0.1"
+    assert rate_limit_module._principal_key(request_b) == "ip:10.0.0.2"
 
 
 def test_auth_disabled_falls_back_to_ip(fresh_rate_limit_state, monkeypatch):

@@ -4,10 +4,11 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, TypeVar
 
 
 logger = logging.getLogger("comac.governance.quota")
+_T = TypeVar("_T")
 
 DEFAULT_UPLOAD_DAILY_BYTES = 500 * 1024 * 1024
 DEFAULT_NOTEBOOK_MAX = 50
@@ -190,3 +191,35 @@ class NotebookCountCap:
         if current_count >= self.max_count:
             raise QuotaExceededError("notebook_count")
         return current_count
+
+    def execute_with_slot(
+        self,
+        owner_id: str,
+        action: Callable[[Any], _T],
+    ) -> _T:
+        """Serialize COUNT + insert work inside a single SQLite write transaction."""
+        if not owner_id:
+            raise ValueError("owner_id is required")
+
+        conn = _open_connection(self.db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM notebooks WHERE owner_id = ?",
+                (owner_id,),
+            ).fetchone()
+            current_count = int(row["count"]) if row else 0
+            if current_count >= self.max_count:
+                conn.rollback()
+                raise QuotaExceededError("notebook_count")
+
+            result = action(conn)
+            conn.commit()
+            return result
+        except QuotaExceededError:
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()

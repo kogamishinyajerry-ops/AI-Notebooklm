@@ -4,10 +4,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import os
 import sys
+import sqlite3
 import requests
 import logging
 import time
@@ -56,6 +58,7 @@ from core.governance.rate_limit import (
     limiter,
     setup_rate_limit,
 )
+from core.models.notebook import Notebook
 from core.observability.logging_utils import emit_json_log
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -246,6 +249,52 @@ def _get_notebook_cap() -> NotebookCountCap:
     return notebook_cap
 
 
+def _build_notebook(name: str, owner_id: Optional[str]) -> Notebook:
+    try:
+        from core.ingestion.transaction import utc_now_iso as _utc_now_iso
+        now = _utc_now_iso()
+    except (ImportError, AttributeError):
+        now = datetime.now(timezone.utc).isoformat()
+    return Notebook(
+        id=str(uuid.uuid4()),
+        name=name.strip(),
+        created_at=now,
+        updated_at=now,
+        source_count=0,
+        owner_id=owner_id,
+    )
+
+
+def _insert_notebook_row(conn: sqlite3.Connection, notebook: Notebook) -> None:
+    conn.execute(
+        """INSERT INTO notebooks
+           (id, name, created_at, updated_at, source_count, owner_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            notebook.id,
+            notebook.name,
+            notebook.created_at,
+            notebook.updated_at,
+            notebook.source_count,
+            notebook.owner_id,
+        ),
+    )
+
+
+def _create_owned_notebook(name: str, owner_id: Optional[str]) -> Notebook:
+    store_module = getattr(getattr(notebook_store, "__class__", None), "__module__", "")
+    if owner_id is None or store_module != "core.storage.notebook_store":
+        return notebook_store.create(name, owner_id=owner_id)
+
+    notebook = _build_notebook(name, owner_id)
+    _get_notebook_cap().execute_with_slot(
+        owner_id,
+        lambda conn: _insert_notebook_row(conn, notebook),
+    )
+    (DEFAULT_SPACES_DIR / notebook.id).mkdir(parents=True, exist_ok=True)
+    return notebook
+
+
 def _require_notebook_access(
     notebook_id: str,
     principal: Optional[AuthPrincipal],
@@ -306,10 +355,8 @@ def create_space(
 ):
     """Legacy alias for creating a notebook-backed knowledge space."""
     owner_id = _principal_owner_id(principal)
-    if owner_id is not None:
-        _get_notebook_cap().check(owner_id)
     try:
-        notebook = notebook_store.create(name, owner_id=owner_id)
+        notebook = _create_owned_notebook(name, owner_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"space_id": notebook.id, "name": notebook.name}
@@ -320,13 +367,8 @@ def create_notebook(
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     owner_id = _principal_owner_id(principal)
-    if owner_id is not None:
-        _get_notebook_cap().check(owner_id)
     try:
-        notebook = notebook_store.create(
-            request.name,
-            owner_id=owner_id,
-        )
+        notebook = _create_owned_notebook(request.name, owner_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return notebook.to_dict()

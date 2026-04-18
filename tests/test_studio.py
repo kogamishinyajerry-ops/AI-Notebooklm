@@ -48,7 +48,7 @@ _REAL_MODULES = (
     "core.storage.studio_store", "core.storage.note_store",
     "core.storage.chat_history_store",
     "core.models.studio_output", "core.models.note", "core.models.chat_message",
-    "core.governance.prompts",
+    "core.governance.prompts", "core.retrieval.retriever",
 )
 _PARENT_PACKAGES = ("core.storage", "core.models")
 
@@ -192,6 +192,19 @@ def _install_api_stubs():
             mod.CrossEncoderReranker = MagicMock
         if not hasattr(mod, "VectorStoreAdapter"):
             mod.VectorStoreAdapter = MagicMock
+
+    if "core.retrieval.retriever" not in sys.modules:
+        retr_mod = _stub("core.retrieval.retriever")
+
+        class _FakeRetrieverEngine:
+            def __init__(self):
+                self.graph_store = None
+                self.graph_extractor = None
+
+            def retrieve(self, *args, **kwargs):
+                return []
+
+        retr_mod.RetrieverEngine = _FakeRetrieverEngine
 
     for name in ["services.ingestion", "services.ingestion.service",
                  "services.ingestion.filenames", "services.ingestion.parser",
