@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
+from core.governance.audit_events import AuditEvent
+from core.governance.audit_redact import encode_payload, redact
 from core.storage.sqlite_db import get_connection, init_schema
 
 
@@ -117,3 +120,94 @@ def test_audit_append_is_append_only_delete_forbidden(tmp_path):
             assert "append-only" in str(exc)
     finally:
         conn.close()
+
+
+def test_audit_event_enum_is_complete():
+    assert [event.value for event in AuditEvent] == [
+        "space.create",
+        "notebook.create",
+        "notebook.delete",
+        "source.upload",
+        "source.delete",
+        "chat.request",
+        "chat.history.clear",
+        "note.create",
+        "note.update",
+        "note.delete",
+        "studio.create",
+        "studio.delete",
+        "graph.generate",
+        "quota.denied",
+        "auth.denied",
+    ]
+
+
+def test_audit_redact_drops_secret_fields():
+    payload = redact(
+        {
+            "title": "Flight Controls",
+            "api_key": "secret-key",
+            "authorization": "Bearer top-secret",
+            "file_content": "super confidential",
+            "chat.message_length": 12,
+        }
+    )
+
+    assert payload == {
+        "title": "Flight Controls",
+        "chat.message_length": 12,
+    }
+
+
+def test_audit_redact_truncates_long_fields():
+    raw = {
+        "title": "T" * 500,
+        "chat.message_length": 11,
+        "quota.dimension": "upload_bytes",
+        "quota.limit": 1024,
+        "quota.used": 512,
+        "notebook_id": "nb-1",
+        "source_id": "src-1",
+        "note_id": "note-1",
+        "space_id": "space-1",
+        "content_type": "application/pdf",
+        "source_type": "upload",
+        "ua_sha256": "u" * 500,
+        "filename_sha256": "f" * 500,
+    }
+    payload = redact(raw)
+
+    assert payload["title"] == "T" * 256
+    assert payload["ua_sha256"] == "u" * 256
+    assert payload["filename_sha256"] == "f" * 256
+    assert encode_payload(payload).encode("utf-8")
+    assert len(encode_payload(payload).encode("utf-8")) <= 2048
+
+    oversized_json = encode_payload(
+        {
+            "title": "T" * 256,
+            "space_id": "S" * 256,
+            "notebook_id": "N" * 256,
+            "source_id": "SRC" * 80,
+            "note_id": "NOTE" * 64,
+            "source_type": "upload" * 40,
+            "content_type": "application/pdf" * 20,
+            "filename_sha256": "f" * 256,
+            "ua_sha256": "u" * 256,
+            "chat.message_length": 11,
+            "chat.history_turns": 99,
+            "quota.dimension": "upload_bytes" * 20,
+            "quota.limit": 1024,
+            "quota.used": 1023,
+        }
+    )
+    oversized = json.loads(oversized_json)
+    assert oversized["_truncated"] is True
+    assert len(oversized_json.encode("utf-8")) <= 2048
+
+
+def test_audit_redact_hashes_filename():
+    payload = redact({"filename": "secret.pdf"})
+
+    assert "filename" not in payload
+    assert payload["filename_sha256"] == "29af7f0168d2731e"
