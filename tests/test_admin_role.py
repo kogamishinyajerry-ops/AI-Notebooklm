@@ -155,3 +155,118 @@ def test_resolve_admin_does_not_cache_across_env_changes(monkeypatch):
     monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "bob")
     assert resolve_admin("alice") is False
     assert resolve_admin("bob") is True
+
+
+# ---------------------------------------------------------------------------
+# T5-T7: require_admin FastAPI dependency (Step 2)
+# ---------------------------------------------------------------------------
+
+
+from fastapi import Depends, FastAPI, Request  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from core.governance.admin import require_admin  # noqa: E402
+from core.security.auth import get_current_principal  # noqa: E402
+
+
+@pytest.fixture
+def admin_app():
+    """Minimal FastAPI app exposing one admin-only endpoint for dep testing."""
+    app = FastAPI()
+
+    @app.get("/admin-only")
+    def admin_only(principal: AuthPrincipal = Depends(require_admin)):  # type: ignore[assignment]
+        return {
+            "principal_id": principal.principal_id,
+            "is_admin": principal.is_admin,
+        }
+
+    # Also expose a non-admin endpoint using just get_current_principal,
+    # to test is_admin enrichment independently of require_admin.
+    @app.get("/who-am-i")
+    def who_am_i(request: Request):
+        p = get_current_principal(request)
+        if p is None:
+            return {"auth": "disabled"}
+        return {"principal_id": p.principal_id, "is_admin": p.is_admin}
+
+    return app
+
+
+def test_require_admin_grants_admin_principal(admin_app, monkeypatch):
+    """T5: admin principal 通过 require_admin，返回 is_admin=True。"""
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice,bob:key-bob")
+    monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "alice")
+    client = TestClient(admin_app)
+    r = client.get("/admin-only", headers={"x-api-key": "key-alice"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body == {"principal_id": "alice", "is_admin": True}
+
+
+def test_get_current_principal_enriches_admin_flag(admin_app, monkeypatch):
+    """T5b: get_current_principal 独立也会根据 env 填 is_admin。"""
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice,bob:key-bob")
+    monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "alice")
+    client = TestClient(admin_app)
+    r1 = client.get("/who-am-i", headers={"x-api-key": "key-alice"})
+    assert r1.json() == {"principal_id": "alice", "is_admin": True}
+    r2 = client.get("/who-am-i", headers={"x-api-key": "key-bob"})
+    assert r2.json() == {"principal_id": "bob", "is_admin": False}
+
+
+def test_require_admin_forbids_non_admin(admin_app, monkeypatch):
+    """T6: 认证成功但非 admin → 403。"""
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice,bob:key-bob")
+    monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "alice")
+    client = TestClient(admin_app)
+    r = client.get("/admin-only", headers={"x-api-key": "key-bob"})
+    assert r.status_code == 403
+    assert "admin" in r.json()["detail"].lower()
+
+
+def test_require_admin_rejects_missing_key(admin_app, monkeypatch):
+    """T7a: 无 API key → 401。"""
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "alice")
+    client = TestClient(admin_app)
+    r = client.get("/admin-only")
+    assert r.status_code == 401
+
+
+def test_require_admin_rejects_invalid_key(admin_app, monkeypatch):
+    """T7b: 非法 key → 401。"""
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "alice")
+    client = TestClient(admin_app)
+    r = client.get("/admin-only", headers={"x-api-key": "bogus"})
+    assert r.status_code == 401
+
+
+def test_require_admin_auth_disabled_returns_503(admin_app, monkeypatch):
+    """T7c: 未开启 auth（NOTEBOOKLM_API_KEYS 未设）→ 503（admin 无意义）。"""
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "alice")
+    client = TestClient(admin_app)
+    r = client.get("/admin-only", headers={"x-api-key": "whatever"})
+    assert r.status_code == 503
+    assert "NOTEBOOKLM_API_KEYS" in r.json()["detail"]
+
+
+def test_require_admin_allowlist_unset_returns_503(admin_app, monkeypatch):
+    """T7d: admin 白名单未设 → 503（防止无法挽救的锁定）。"""
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    monkeypatch.delenv(ADMIN_PRINCIPALS_ENV, raising=False)
+    client = TestClient(admin_app)
+    r = client.get("/admin-only", headers={"x-api-key": "key-alice"})
+    assert r.status_code == 503
+    assert "NOTEBOOKLM_ADMIN_PRINCIPALS" in r.json()["detail"]
+
+
+def test_require_admin_allowlist_blank_returns_503(admin_app, monkeypatch):
+    """T7e: admin env 为空白字符串 → 等价于未设。"""
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "   ")
+    client = TestClient(admin_app)
+    r = client.get("/admin-only", headers={"x-api-key": "key-alice"})
+    assert r.status_code == 503

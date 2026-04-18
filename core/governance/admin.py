@@ -17,7 +17,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Set
+from typing import TYPE_CHECKING, Set
+
+from fastapi import HTTPException, Request
+
+
+if TYPE_CHECKING:
+    from core.security.auth import AuthPrincipal
 
 
 logger = logging.getLogger("comac.governance.admin")
@@ -64,3 +70,42 @@ def resolve_admin(principal_id: str) -> bool:
     if not principal_id:
         return False
     return principal_id in get_admin_principal_ids()
+
+
+def require_admin(request: Request) -> "AuthPrincipal":
+    """FastAPI dependency: gate a route to admin-only access.
+
+    Response codes (stable, covered by tests T5-T7):
+
+    * 503 — auth is not enabled (no API key registry configured)
+    * 503 — admin allowlist is empty (NOTEBOOKLM_ADMIN_PRINCIPALS unset)
+    * 401 — missing / invalid API key (delegated to ``get_current_principal``)
+    * 403 — authenticated but principal is not in the admin allowlist
+    * 200 — returns the enriched ``AuthPrincipal`` with ``is_admin=True``
+
+    Admin is a *strict extension* of auth: admin never bypasses auth, only
+    quota/rate-limit dimensions (FD-10).
+    """
+    # Lazy import to avoid circular dependency (auth -> admin for enrichment,
+    # admin -> auth for the dependency chain).
+    from core.security.auth import auth_is_enabled, get_current_principal
+
+    if not auth_is_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Admin requires API key auth; NOTEBOOKLM_API_KEYS is not configured",
+        )
+    if not get_admin_principal_ids():
+        raise HTTPException(
+            status_code=503,
+            detail="Admin not configured; NOTEBOOKLM_ADMIN_PRINCIPALS is empty",
+        )
+
+    principal = get_current_principal(request)
+    if principal is None:
+        # Defense-in-depth: auth_is_enabled() true but registry empty shouldn't happen;
+        # get_current_principal already raises 401 for missing/invalid keys.
+        raise HTTPException(status_code=401, detail="API key required")
+    if not principal.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return principal
