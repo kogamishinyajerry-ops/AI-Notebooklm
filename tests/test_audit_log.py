@@ -4,8 +4,13 @@ import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
+
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
 
 from core.governance.audit_events import AuditEvent
+from core.governance.audit_logger import AuditLogger
 from core.governance.audit_redact import encode_payload, redact
 from core.governance.audit_store import AuditRecord, AuditStore
 from core.storage.sqlite_db import get_connection, init_schema
@@ -298,3 +303,110 @@ def test_audit_append_concurrent_writers_no_loss(tmp_path):
         assert counts["distinct_event_ids"] == 1000
     finally:
         conn.close()
+
+
+def _make_request(
+    *,
+    principal_id: str | None = "alice",
+    request_id: str = "req-audit",
+    client_ip: str = "127.0.0.1",
+    forwarded_for: str | None = None,
+) -> Request:
+    headers = []
+    if forwarded_for is not None:
+        headers.append((b"x-forwarded-for", forwarded_for.encode("utf-8")))
+    scope = {
+        "type": "http",
+        "headers": headers,
+        "client": (client_ip, 1234),
+        "state": {},
+    }
+    request = Request(scope)
+    request.state.request_id = request_id
+    if principal_id is not None:
+        request.state.principal = SimpleNamespace(principal_id=principal_id)
+    return request
+
+
+def test_audit_logger_mirrors_to_json_log(tmp_path, caplog):
+    caplog.set_level("INFO", logger="comac.audit")
+
+    db_path = tmp_path / "audit.db"
+    audit_logger = AuditLogger(db_path=db_path)
+    request = _make_request(
+        principal_id="alice",
+        request_id="req-mirror",
+        client_ip="127.0.0.1",
+        forwarded_for="203.0.113.10",
+    )
+
+    record = audit_logger.record(
+        request=request,
+        event=AuditEvent.NOTEBOOK_CREATE,
+        outcome="success",
+        resource_type="notebook",
+        resource_id="nb-123",
+        http_status=201,
+        payload={"title": "Flight Controls"},
+    )
+
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM audit_events WHERE event_id = ?",
+            (record.event_id,),
+        ).fetchone()
+        assert row is not None
+    finally:
+        conn.close()
+
+    audit_logs = [
+        json.loads(log_record.getMessage())
+        for log_record in caplog.records
+        if log_record.name == "comac.audit" and '"event": "audit"' in log_record.getMessage()
+    ]
+    assert len(audit_logs) == 1
+    audit_log = audit_logs[0]
+
+    expected_fields = dict(row)
+    expected_fields["audit_event"] = expected_fields.pop("event")
+
+    assert audit_log["event"] == "audit"
+    for key, value in expected_fields.items():
+        assert audit_log[key] == value
+
+
+def test_audit_sqlite_failure_falls_back_to_json_log(caplog):
+    caplog.set_level("INFO", logger="comac.audit")
+
+    class _FailingStore:
+        def append(self, record):
+            raise sqlite3.OperationalError("disk full")
+
+    audit_logger = AuditLogger(store=_FailingStore())
+    app = FastAPI()
+
+    @app.post("/ok")
+    def ok_route(request: Request):
+        audit_logger.record(
+            request=request,
+            event=AuditEvent.NOTEBOOK_CREATE,
+            outcome="success",
+            resource_type="notebook",
+            resource_id="nb-ok",
+            http_status=200,
+            payload={"title": "Fallback"},
+        )
+        return {"ok": True}
+
+    client = TestClient(app)
+    response = client.post("/ok", headers={"x-request-id": "req-fallback"})
+
+    assert response.status_code == 200
+    log_events = [
+        json.loads(log_record.getMessage())["event"]
+        for log_record in caplog.records
+        if log_record.name == "comac.audit"
+    ]
+    assert "audit" in log_events
+    assert "audit_append_failed" in log_events

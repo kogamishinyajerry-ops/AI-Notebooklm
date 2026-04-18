@@ -51,6 +51,7 @@ from core.security.auth import (
     auth_is_enabled,
     get_current_principal as _auth_get_current_principal,
 )
+from core.governance.audit_logger import AuditLogger
 from core.governance.quota_store import DailyUploadQuota, NotebookCountCap, QuotaExceededError
 from core.governance.rate_limit import (
     CHAT_RATE_EXCEEDED_DETAIL,
@@ -73,6 +74,7 @@ retriever_engine = RetrieverEngine()
 graph_extractor = GraphExtractor()
 upload_quota: Optional[DailyUploadQuota] = None
 notebook_cap: Optional[NotebookCountCap] = None
+audit_logger: Optional[AuditLogger] = None
 
 # V4.1-T2: Storage store placeholders — initialized in on_startup (after all imports)
 # Deferred import avoids triggering core.storage.sqlite_db when test_cross_notebook_isolation
@@ -89,7 +91,7 @@ graph_store = None
 def on_startup():
     # V4.1-T2: Deferred imports — avoid triggering sqlite_db when core.storage is stubbed
     global notebook_store, source_registry, note_store, chat_history_store, studio_store, graph_store
-    global upload_quota, notebook_cap
+    global upload_quota, notebook_cap, audit_logger
     from core.storage.sqlite_db import run_migration_if_needed
     from core.storage.notebook_store import NotebookStore
     from core.storage.source_registry import SourceRegistry
@@ -121,6 +123,9 @@ def on_startup():
         upload_quota = DailyUploadQuota(db_path=_DB_PATH)
     if notebook_cap is None:
         notebook_cap = NotebookCountCap(db_path=_DB_PATH)
+    if audit_logger is None:
+        audit_logger = AuditLogger(db_path=_DB_PATH)
+    app.state.audit_logger = audit_logger
     setup_rate_limit(app)
 
     # Gap-A: inject graph signal into the retriever
@@ -247,6 +252,18 @@ def _get_notebook_cap() -> NotebookCountCap:
     if notebook_cap is None:
         notebook_cap = NotebookCountCap(db_path=_DB_PATH)
     return notebook_cap
+
+
+def get_audit_logger(request: Request) -> AuditLogger:
+    logger_instance = getattr(request.app.state, "audit_logger", None)
+    if logger_instance is not None:
+        return logger_instance
+
+    global audit_logger
+    if audit_logger is None:
+        audit_logger = AuditLogger(db_path=_DB_PATH)
+    request.app.state.audit_logger = audit_logger
+    return audit_logger
 
 
 def _build_notebook(name: str, owner_id: Optional[str]) -> Notebook:
