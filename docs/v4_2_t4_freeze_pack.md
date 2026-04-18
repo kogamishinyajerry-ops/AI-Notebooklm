@@ -45,9 +45,11 @@ Frozen Decisions
   `created_at`, sample of first 10 IDs) and always exits 0.
 
 - **FD-7 · Transactional safety**  
-  The migration runs inside a single `BEGIN IMMEDIATE` transaction. On
-  any row failure the transaction rolls back entirely (no partial
-  migration) and the CLI exits 3.
+  The migration runs inside a single `BEGIN IMMEDIATE` transaction that
+  covers BOTH the `UPDATE notebooks` and the per-row
+  `INSERT INTO audit_events`. On any failure — row-level UPDATE mismatch
+  or audit INSERT failure — the whole batch rolls back entirely (no
+  partial migration, no orphan audit rows) and the CLI exits 3.
 
 - **FD-8 · Audit emission**  
   New event `notebook.migrate_owner` (value; enum name `NOTEBOOK_MIGRATE_OWNER`).  
@@ -55,7 +57,11 @@ Frozen Decisions
   `principal_id=system:migrate_notebook_ownership`, `resource_type=notebook`,
   `resource_id=<notebook_id>`, `http_status=200`, payload includes
   `migrate.from_owner`, `migrate.to_owner`, `migrate.forced` (bool).
-  Emission goes through `AuditLogger.for_system("migrate_notebook_ownership")`.
+  Emission uses `AuditStore.append_within(conn, record)` on the
+  caller-owned connection so the audit row is atomic with the data
+  change. Audit DB must live in the same SQLite file as notebooks DB
+  (cross-DB atomicity is impossible with SQLite); the CLI refuses a
+  split-DB configuration at runtime.
 
 - **FD-9 · Zero dependency additions (C1)**  
   Script uses stdlib only: `argparse`, `sqlite3`, `os`, `sys`. Reuses
@@ -66,8 +72,15 @@ Frozen Decisions
   `0` = success / nothing to do;  
   `1` = dry-run found pending work (no writes happened);  
   `2` = validation failed (unknown principal, no `NOTEBOOKLM_API_KEYS`,
-        missing `--owner`);  
+        missing `--owner`, or `--force` without `--i-know-what-im-doing`);  
   `3` = I/O or DB error (rolled back).
+
+- **FD-11 · `--force` gate (post-Opus-review addendum, 2026-04-18)**  
+  `--force` rewrites non-legacy `owner_id` — i.e. revokes one user's
+  ownership and hands the notebook to another. This is outside the F-4
+  "fill legacy NULL/empty" scope. `--force` MUST be paired with
+  `--i-know-what-im-doing`; CLI exits 2 without it. The gate is purely
+  additive (no-op without `--force`).
 
 File Plan
 ---------
@@ -108,15 +121,20 @@ Test Plan
 - `test_migrate_missing_api_keys_exits_2`
 - `test_migrate_emits_audit_row_per_notebook`
 - `test_migrate_rolls_back_on_row_failure`
+- `test_force_without_kiwid_flag_exits_2` (FD-11)
+- `test_migrate_rejects_split_audit_db` (FD-7/FD-8 same-tx guard)
+- `test_migrate_audit_resource_ids_match_migrated_rows`
 
 Stop Conditions
 ---------------
-1. All new tests pass + previous 362-test baseline remains green.
+1. All new tests pass + previous baseline remains green.
 2. Retrieval-quality regression (`tests/eval/retrieval_quality_test.py`)
    still 8/8 — C2 preserved.
 3. No new third-party dependency added — C1 preserved.
-4. PR branch `feat/v4-2-t4-legacy-notebook-migration` opened, Gate
-   Review body self-signed (Executor=Gate).
+4. PR branch `feat/v4-2-t4-legacy-notebook-migration` opened. **Opus 4.7
+   Gate Review happens out-of-band on the opened PR** — Executor does
+   NOT self-sign (C3 governance contract; prior self-signing in the T3
+   PR body was identified as a governance violation and rectified here).
 
 Threat Model Notes
 ------------------

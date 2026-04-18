@@ -24,7 +24,9 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import uuid
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -34,6 +36,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from core.governance.audit_redact import encode_payload, redact  # noqa: E402
+from core.governance.audit_store import AuditRecord, AuditStore  # noqa: E402
 from core.storage.sqlite_db import get_connection  # noqa: E402
 
 
@@ -112,17 +116,72 @@ def _print_dry_run(rows: list[dict], target_owner: str, forced: bool, out) -> No
         print(f"  {row['id']}  from={cur!r}  to={target_owner!r}  created_at={row['created_at']}", file=out)
 
 
-def _apply_migration(conn, rows: list[dict], target_owner: str, forced: bool, audit_logger) -> int:
-    """Transactional write (FD-7) + audit emission (FD-8).
+def _build_migrate_record(row: dict, target_owner: str, forced: bool) -> AuditRecord:
+    """Build a notebook.migrate_owner AuditRecord for a single row.
+
+    Bypasses AuditLogger on purpose — we need to INSERT this record on the
+    same connection as the notebooks UPDATE so the audit row is atomic
+    with the data change (rolled back together on any failure).
+    """
+    from_owner = row["owner_id"] if row["owner_id"] not in (None, "") else ""
+    payload = {
+        "migrate.from_owner": from_owner,
+        "migrate.to_owner": target_owner,
+        "migrate.forced": bool(forced),
+    }
+    return AuditRecord(
+        event_id=str(uuid.uuid4()),
+        ts_utc=datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+        event="notebook.migrate_owner",
+        outcome="success",
+        actor_type="system",
+        principal_id="system:migrate_notebook_ownership",
+        request_id=str(uuid.uuid4()),
+        remote_addr="-",
+        resource_type="notebook",
+        resource_id=row["id"],
+        parent_resource_id="-",
+        http_status=200,
+        error_code="-",
+        payload_json=encode_payload(redact(payload)),
+    )
+
+
+def _apply_migration(
+    conn,
+    rows: list[dict],
+    target_owner: str,
+    forced: bool,
+    audit_store: AuditStore | None,
+    notebooks_db_path: Path,
+) -> int:
+    """Single-transaction UPDATE + audit INSERT (FD-7 + FD-8 atomic).
+
+    Both writes share one BEGIN IMMEDIATE / COMMIT — any failure rolls
+    back both. Prod default has audit_events living in the same SQLite
+    file as notebooks; that invariant is enforced here because atomic
+    cross-database writes are impossible with SQLite.
 
     Returns count of rows migrated. Rolls back and raises on any failure.
     """
     if not rows:
         return 0
 
+    if audit_store is not None:
+        audit_db = Path(audit_store.db_path).resolve()
+        notebooks_db = notebooks_db_path.resolve()
+        if audit_db != notebooks_db:
+            raise ValueError(
+                "audit DB must live in the same SQLite file as notebooks DB "
+                "for T4 atomic-migration guarantee; "
+                f"got audit={audit_db}, notebooks={notebooks_db}"
+            )
+
+    # Build records up front so the tx body is pure I/O, not computation.
+    records = [_build_migrate_record(row, target_owner, forced) for row in rows]
+
     try:
         conn.execute("BEGIN IMMEDIATE")
-        migrated = 0
         for row in rows:
             result = conn.execute(
                 "UPDATE notebooks SET owner_id = ? WHERE id = ?",
@@ -132,34 +191,15 @@ def _apply_migration(conn, rows: list[dict], target_owner: str, forced: bool, au
                 raise RuntimeError(
                     f"expected 1 row updated for notebook {row['id']!r}, got {result.rowcount}"
                 )
-            migrated += 1
+        if audit_store is not None:
+            for record in records:
+                audit_store.append_within(conn, record)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
 
-    # Audit emission is AFTER commit so audit rows only describe persisted
-    # state. If audit append fails, the AuditLogger falls back to JSON log
-    # (see audit_logger._append_with_fallback) — we don't roll back the
-    # migration for an audit-transport failure.
-    if audit_logger is not None:
-        system_logger = audit_logger.for_system("migrate_notebook_ownership")
-        for row in rows:
-            from_owner = row["owner_id"] if row["owner_id"] not in (None, "") else ""
-            system_logger.record(
-                event="notebook.migrate_owner",
-                outcome="success",
-                resource_type="notebook",
-                resource_id=row["id"],
-                http_status=200,
-                payload={
-                    "migrate.from_owner": from_owner,
-                    "migrate.to_owner": target_owner,
-                    "migrate.forced": bool(forced),
-                },
-            )
-
-    return migrated
+    return len(records)
 
 
 def _confirm(target_owner: str, count: int, forced: bool, assume_yes: bool) -> bool:
@@ -183,7 +223,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--owner", help="Target principal_id (must exist in NOTEBOOKLM_API_KEYS)")
     p.add_argument("--dry-run", action="store_true", help="Plan only — no writes, no audit")
     p.add_argument("--report-only", action="store_true", help="Inventory summary — always exit 0")
-    p.add_argument("--force", action="store_true", help="Also rewrite non-legacy owner_id values")
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Also rewrite non-legacy owner_id values (cross-owner reassignment)",
+    )
+    p.add_argument(
+        "--i-know-what-im-doing",
+        dest="i_know_what_im_doing",
+        action="store_true",
+        help=(
+            "Acknowledge the danger of --force (cross-owner reassignment). "
+            "REQUIRED when --force is set. No-op without --force."
+        ),
+    )
     p.add_argument(
         "--notebook-id",
         action="append",
@@ -194,7 +247,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Sequence[str] | None = None, *, audit_logger=None, out=None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    audit_store: AuditStore | None = None,
+    out=None,
+) -> int:
     out = out or sys.stdout
     args = build_parser().parse_args(argv)
 
@@ -202,6 +260,17 @@ def main(argv: Sequence[str] | None = None, *, audit_logger=None, out=None) -> i
     if not db_path.exists():
         print(f"error: db not found: {db_path}", file=sys.stderr)
         return EXIT_IO_ERROR
+
+    # FD-11 (post-review): --force + cross-owner reassignment requires an
+    # explicit --i-know-what-im-doing acknowledgment. The latter is a
+    # no-op without --force to keep the gate purely additive.
+    if args.force and not args.i_know_what_im_doing:
+        print(
+            "error: --force rewrites non-legacy owner_id (cross-owner reassignment). "
+            "Pass --i-know-what-im-doing to acknowledge.",
+            file=sys.stderr,
+        )
+        return EXIT_VALIDATION_FAILED
 
     try:
         conn = get_connection(db_path)
@@ -259,7 +328,9 @@ def main(argv: Sequence[str] | None = None, *, audit_logger=None, out=None) -> i
             return EXIT_OK
 
         try:
-            migrated = _apply_migration(conn, rows, args.owner, args.force, audit_logger)
+            migrated = _apply_migration(
+                conn, rows, args.owner, args.force, audit_store, db_path
+            )
         except Exception as exc:
             print(f"error: migration failed, rolled back: {exc}", file=sys.stderr)
             return EXIT_IO_ERROR

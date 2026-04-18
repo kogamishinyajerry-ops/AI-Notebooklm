@@ -76,55 +76,68 @@ class AuditStore:
         self.db_path = Path(db_path)
         _initialize_db(self.db_path)
 
+    _INSERT_SQL = """
+        INSERT INTO audit_events (
+            event_id,
+            ts_utc,
+            event,
+            outcome,
+            actor_type,
+            principal_id,
+            request_id,
+            remote_addr,
+            resource_type,
+            resource_id,
+            parent_resource_id,
+            http_status,
+            error_code,
+            payload_json,
+            schema_version
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+
+    @staticmethod
+    def _record_params(record: AuditRecord) -> tuple:
+        return (
+            record.event_id,
+            record.ts_utc,
+            record.event,
+            record.outcome,
+            record.actor_type,
+            record.principal_id,
+            record.request_id,
+            record.remote_addr,
+            record.resource_type,
+            record.resource_id,
+            record.parent_resource_id,
+            record.http_status,
+            record.error_code,
+            record.payload_json,
+            record.schema_version,
+        )
+
     def append(self, record: AuditRecord) -> None:
         conn = _open_connection(self.db_path)
         try:
             conn.execute("BEGIN IMMEDIATE")
-            conn.execute(
-                """
-                INSERT INTO audit_events (
-                    event_id,
-                    ts_utc,
-                    event,
-                    outcome,
-                    actor_type,
-                    principal_id,
-                    request_id,
-                    remote_addr,
-                    resource_type,
-                    resource_id,
-                    parent_resource_id,
-                    http_status,
-                    error_code,
-                    payload_json,
-                    schema_version
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.event_id,
-                    record.ts_utc,
-                    record.event,
-                    record.outcome,
-                    record.actor_type,
-                    record.principal_id,
-                    record.request_id,
-                    record.remote_addr,
-                    record.resource_type,
-                    record.resource_id,
-                    record.parent_resource_id,
-                    record.http_status,
-                    record.error_code,
-                    record.payload_json,
-                    record.schema_version,
-                ),
-            )
+            conn.execute(self._INSERT_SQL, self._record_params(record))
             conn.commit()
         except Exception:
             conn.rollback()
             raise
         finally:
             conn.close()
+
+    def append_within(self, conn, record: AuditRecord) -> None:
+        """INSERT a record on a caller-owned connection.
+
+        No BEGIN / COMMIT / CLOSE — the caller owns the transaction. Use
+        when the audit row MUST be atomic with other writes in the same
+        transaction (e.g. V4.2-T4 notebook ownership migration, where
+        losing the audit row would break the compliance evidence chain).
+        """
+        conn.execute(self._INSERT_SQL, self._record_params(record))
 
     def query_events(
         self,

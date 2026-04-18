@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from core.governance.audit_events import AuditEvent
-from core.governance.audit_logger import AuditLogger
+from core.governance.audit_store import AuditStore
 from core.storage.sqlite_db import get_connection, init_schema
 from scripts import migrate_notebook_ownership as mig
 
@@ -56,8 +56,11 @@ def db(tmp_path):
 
 
 @pytest.fixture
-def audit_logger(tmp_path):
-    return AuditLogger(db_path=tmp_path / "audit.db")
+def audit_store(db):
+    """Audit rows share the notebooks DB — FD-7/FD-8 atomic-migration
+    invariant (same SQLite file so a single BEGIN IMMEDIATE covers both
+    UPDATE notebooks and INSERT INTO audit_events)."""
+    return AuditStore(db_path=db)
 
 
 @pytest.fixture
@@ -118,14 +121,14 @@ def test_dry_run_no_db_writes(db, alice_env):
     assert _count_with_owner(db, "alice") == 0
 
 
-def test_dry_run_no_audit_emission(db, alice_env, audit_logger):
+def test_dry_run_no_audit_emission(db, alice_env, audit_store):
     _seed_notebook(db, "nb-legacy", None)
     mig.main(
         ["--db", str(db), "--owner", "alice", "--dry-run"],
         out=io.StringIO(),
-        audit_logger=audit_logger,
+        audit_store=audit_store,
     )
-    events = audit_logger.store.query_events(
+    events = audit_store.query_events(
         event=AuditEvent.NOTEBOOK_MIGRATE_OWNER.value
     ).items
     assert events == []
@@ -144,28 +147,28 @@ def test_dry_run_exits_0_when_nothing_pending(db, alice_env):
 # ---------------------------------------------------------------------------
 
 
-def test_migrate_assigns_owner_to_legacy_rows(db, alice_env, audit_logger):
+def test_migrate_assigns_owner_to_legacy_rows(db, alice_env, audit_store):
     _seed_notebook(db, "nb-1", None)
     _seed_notebook(db, "nb-2", "")
 
     rc = mig.main(
         ["--db", str(db), "--owner", "alice", "--assume-yes"],
         out=io.StringIO(),
-        audit_logger=audit_logger,
+        audit_store=audit_store,
     )
     assert rc == mig.EXIT_OK
     assert _count_with_owner(db, "alice") == 2
 
 
-def test_migrate_idempotent_second_run_is_noop(db, alice_env, audit_logger):
+def test_migrate_idempotent_second_run_is_noop(db, alice_env, audit_store):
     _seed_notebook(db, "nb-1", None)
 
     mig.main(
         ["--db", str(db), "--owner", "alice", "--assume-yes"],
         out=io.StringIO(),
-        audit_logger=audit_logger,
+        audit_store=audit_store,
     )
-    events_after_first = audit_logger.store.query_events(
+    events_after_first = audit_store.query_events(
         event=AuditEvent.NOTEBOOK_MIGRATE_OWNER.value
     ).items
     assert len(events_after_first) == 1
@@ -173,10 +176,10 @@ def test_migrate_idempotent_second_run_is_noop(db, alice_env, audit_logger):
     rc = mig.main(
         ["--db", str(db), "--owner", "alice", "--assume-yes"],
         out=io.StringIO(),
-        audit_logger=audit_logger,
+        audit_store=audit_store,
     )
     assert rc == mig.EXIT_OK
-    events_after_second = audit_logger.store.query_events(
+    events_after_second = audit_store.query_events(
         event=AuditEvent.NOTEBOOK_MIGRATE_OWNER.value
     ).items
     # No new audit rows because no rows were migrated.
@@ -195,23 +198,40 @@ def test_migrate_skips_non_legacy_without_force(db, alice_env):
     assert _count_with_owner(db, "alice") == 0
 
 
-def test_migrate_force_overwrites_non_legacy(db, alice_env, audit_logger):
+def test_migrate_force_overwrites_non_legacy(db, alice_env, audit_store):
     _seed_notebook(db, "nb-bob", "bob")
 
     rc = mig.main(
-        ["--db", str(db), "--owner", "alice", "--force", "--assume-yes"],
+        [
+            "--db", str(db), "--owner", "alice",
+            "--force", "--i-know-what-im-doing",
+            "--assume-yes",
+        ],
         out=io.StringIO(),
-        audit_logger=audit_logger,
+        audit_store=audit_store,
     )
     assert rc == mig.EXIT_OK
     assert _count_with_owner(db, "alice") == 1
     assert _count_with_owner(db, "bob") == 0
 
-    events = audit_logger.store.query_events(
+    events = audit_store.query_events(
         event=AuditEvent.NOTEBOOK_MIGRATE_OWNER.value
     ).items
     assert len(events) == 1
     assert '"migrate.forced":true' in events[0].payload_json
+
+
+def test_force_without_kiwid_flag_exits_2(db, alice_env):
+    """--force requires --i-know-what-im-doing (post-Opus-review gate)."""
+    _seed_notebook(db, "nb-bob", "bob")
+    rc = mig.main(
+        ["--db", str(db), "--owner", "alice", "--force", "--assume-yes"],
+        out=io.StringIO(),
+    )
+    assert rc == mig.EXIT_VALIDATION_FAILED
+    # No writes happened.
+    assert _count_with_owner(db, "bob") == 1
+    assert _count_with_owner(db, "alice") == 0
 
 
 def test_migrate_empty_string_owner_treated_as_legacy(db, alice_env):
@@ -279,16 +299,16 @@ def test_migrate_missing_owner_flag_exits_2(db, alice_env):
 # ---------------------------------------------------------------------------
 
 
-def test_migrate_emits_audit_row_per_notebook(db, alice_env, audit_logger):
+def test_migrate_emits_audit_row_per_notebook(db, alice_env, audit_store):
     _seed_notebook(db, "nb-1", None)
     _seed_notebook(db, "nb-2", "")
 
     mig.main(
         ["--db", str(db), "--owner", "alice", "--assume-yes"],
         out=io.StringIO(),
-        audit_logger=audit_logger,
+        audit_store=audit_store,
     )
-    events = audit_logger.store.query_events(
+    events = audit_store.query_events(
         event=AuditEvent.NOTEBOOK_MIGRATE_OWNER.value
     ).items
     assert len(events) == 2
@@ -300,7 +320,7 @@ def test_migrate_emits_audit_row_per_notebook(db, alice_env, audit_logger):
         assert '"migrate.forced":false' in e.payload_json
 
 
-def test_migrate_rolls_back_on_row_failure(db, alice_env, audit_logger, monkeypatch):
+def test_migrate_rolls_back_on_row_failure(db, alice_env, audit_store, monkeypatch):
     _seed_notebook(db, "nb-1", None)
     _seed_notebook(db, "nb-2", None)
 
@@ -326,13 +346,56 @@ def test_migrate_rolls_back_on_row_failure(db, alice_env, audit_logger, monkeypa
     rc = mig.main(
         ["--db", str(db), "--owner", "alice", "--assume-yes"],
         out=io.StringIO(),
-        audit_logger=audit_logger,
+        audit_store=audit_store,
     )
     assert rc == mig.EXIT_IO_ERROR
     # DB rolled back — nobody migrated.
     assert _count_with_owner(db, "alice") == 0
-    # No audit rows emitted (audit runs after commit).
-    events = audit_logger.store.query_events(
+    # Audit rows rolled back WITH the data change (FD-7/FD-8 same-tx).
+    events = audit_store.query_events(
         event=AuditEvent.NOTEBOOK_MIGRATE_OWNER.value
     ).items
     assert events == []
+
+
+def test_migrate_rejects_split_audit_db(db, alice_env, tmp_path):
+    """FD-7/FD-8: audit_store.db_path must equal notebooks db_path.
+
+    Cross-SQLite-file atomicity is impossible, so a split DB configuration
+    must be refused before any UPDATE runs.
+    """
+    _seed_notebook(db, "nb-1", None)
+    other_db = tmp_path / "other_audit.db"
+    wrong_store = AuditStore(db_path=other_db)
+
+    rc = mig.main(
+        ["--db", str(db), "--owner", "alice", "--assume-yes"],
+        out=io.StringIO(),
+        audit_store=wrong_store,
+    )
+    assert rc == mig.EXIT_IO_ERROR
+    # No writes on either DB.
+    assert _count_with_owner(db, "alice") == 0
+    events = wrong_store.query_events(
+        event=AuditEvent.NOTEBOOK_MIGRATE_OWNER.value
+    ).items
+    assert events == []
+
+
+def test_migrate_audit_resource_ids_match_migrated_rows(db, alice_env, audit_store):
+    """FD-7 atomic invariant: every migrated row has exactly one audit row
+    with matching resource_id (1:1 pairing inside the same transaction)."""
+    for nid in ("nb-a", "nb-b", "nb-c"):
+        _seed_notebook(db, nid, None)
+
+    rc = mig.main(
+        ["--db", str(db), "--owner", "alice", "--assume-yes"],
+        out=io.StringIO(),
+        audit_store=audit_store,
+    )
+    assert rc == mig.EXIT_OK
+
+    events = audit_store.query_events(
+        event=AuditEvent.NOTEBOOK_MIGRATE_OWNER.value
+    ).items
+    assert {e.resource_id for e in events} == {"nb-a", "nb-b", "nb-c"}

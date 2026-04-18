@@ -65,6 +65,12 @@ Exit codes:
 - `2` — validation failed (`--owner` not in allowlist, or env not set).
 - `3` — I/O error (e.g. `--db` path does not exist).
 
+> **⚠️ Dry-run output is a point-in-time snapshot.** New notebook rows
+> created between dry-run and the real pass will NOT appear in the plan
+> but WILL be touched by the real pass if they match the legacy filter.
+> Run dry-run and the real migration in the same maintenance window;
+> ideally place the service in read-only mode between the two.
+
 -------------------------------------------------------------------------------
 4. Real migration
 -------------------------------------------------------------------------------
@@ -79,11 +85,13 @@ for interactive runs.
 What happens:
 1. Script opens `data/notebooks.db`, executes `BEGIN IMMEDIATE`.
 2. Every legacy row's `owner_id` is UPDATEd to the target.
-3. Transaction commits. On ANY row failure the whole batch rolls back
-   (exit 3) — you will not end up with a half-migrated table.
-4. After commit, one audit row per migrated notebook is appended as
-   `notebook.migrate_owner` via the system audit logger
-   (`principal_id=system:migrate_notebook_ownership`).
+3. One `notebook.migrate_owner` audit row per migrated notebook is
+   INSERTed on the *same* connection (principal_id =
+   `system:migrate_notebook_ownership`).
+4. Transaction commits. On ANY failure — row-level UPDATE mismatch OR
+   audit INSERT failure — the whole batch rolls back (exit 3), leaving
+   both the data and the audit log untouched. There is no window where
+   the table is migrated but the audit row is missing.
 
 Idempotency: re-running with the same `--owner` is a no-op. No new
 audit rows are emitted for already-migrated notebooks.
@@ -107,12 +115,17 @@ deliberate):
         --db data/notebooks.db \
         --owner alice \
         --notebook-id nb-1234 \
-        --force \
+        --force --i-know-what-im-doing \
         --assume-yes
 
-`--force` overwrites non-legacy `owner_id` values. Each overwrite emits
-an audit row with `"migrate.forced": true` so the reassignment is
-traceable.
+> **🛑 `--force` is outside the F-4 "fill legacy NULL/empty" scope.** It
+> rewrites `owner_id` on rows that already have a real principal — i.e.
+> it revokes one user's ownership and hands the notebook to another.
+> Use only when you have written operational authorization (incident,
+> account offboarding, etc.). `--force` now requires the explicit
+> `--i-know-what-im-doing` flag; the script exits `2` without it. Each
+> overwrite emits an audit row with `"migrate.forced": true` so the
+> reassignment is traceable.
 
 -------------------------------------------------------------------------------
 6. Verifying the result
