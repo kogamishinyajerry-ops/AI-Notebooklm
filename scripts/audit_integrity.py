@@ -8,6 +8,7 @@ from typing import Iterable
 
 from core.governance.audit_events import AuditEvent
 from core.governance.audit_logger import AuditLogger
+from core.governance.audit_store import AuditRecord
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,64 @@ ORPHAN_RELATIONS: tuple[OrphanRelation, ...] = (
     OrphanRelation(table="studio_outputs", id_column="id"),
     OrphanRelation(table="knowledge_graphs", id_column="notebook_id"),
 )
+
+
+class _DirectAuditStore:
+    """Append audit rows without schema initialization to avoid migration recursion."""
+
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+
+    def append(self, record: AuditRecord) -> None:
+        conn = sqlite3.connect(self.db_path, timeout=5.0, check_same_thread=False)
+        try:
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                INSERT INTO audit_events (
+                    event_id,
+                    ts_utc,
+                    event,
+                    outcome,
+                    actor_type,
+                    principal_id,
+                    request_id,
+                    remote_addr,
+                    resource_type,
+                    resource_id,
+                    parent_resource_id,
+                    http_status,
+                    error_code,
+                    payload_json,
+                    schema_version
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.event_id,
+                    record.ts_utc,
+                    record.event,
+                    record.outcome,
+                    record.actor_type,
+                    record.principal_id,
+                    record.request_id,
+                    record.remote_addr,
+                    record.resource_type,
+                    record.resource_id,
+                    record.parent_resource_id,
+                    record.http_status,
+                    record.error_code,
+                    record.payload_json,
+                    record.schema_version,
+                ),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -147,7 +206,7 @@ def repair_orphans(
     if not confirm and not _confirm_repair(current_orphans):
         return {table: 0 for table in current_orphans}
 
-    logger = audit_logger or AuditLogger(db_path=path)
+    logger = audit_logger or AuditLogger(store=_DirectAuditStore(path))
     deleted: dict[str, int] = {}
     conn = _open_connection(path)
     try:
