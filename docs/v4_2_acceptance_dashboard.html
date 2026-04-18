@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>V4.2 Closeout & V4.3 Kickoff — Visual Acceptance</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --surface: #1a1f2e;
+    --surface-2: #232937;
+    --border: #2d3548;
+    --text: #e6e9ef;
+    --muted: #8b93a7;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #ef4444;
+    --info: #60a5fa;
+    --accent: #a78bfa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif; line-height: 1.55; }
+  body { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 32px; }
+  header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+  header .sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
+  header .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); font-size: 12px; color: var(--muted); margin-right: 6px; }
+  header .pill.ok { background: rgba(74,222,128,0.14); color: var(--ok); }
+  header .pill.warn { background: rgba(251,191,36,0.14); color: var(--warn); }
+
+  h2 { font-size: 18px; margin: 28px 0 14px; font-weight: 600; letter-spacing: -0.01em; }
+  h3 { font-size: 14px; margin: 12px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  .grid { display: grid; gap: 14px; }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 760px) { .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; } }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .card .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .card .v { font-size: 22px; font-weight: 700; margin-top: 6px; }
+  .card .v small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; }
+  td.status { font-weight: 600; }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .err { color: var(--err); }
+  .info { color: var(--info); }
+  .accent { color: var(--accent); }
+  a { color: var(--info); text-decoration: none; border-bottom: 1px dashed rgba(96,165,250,0.4); }
+  a:hover { border-bottom-style: solid; }
+
+  .bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); margin-top: 8px; }
+  .bar > span { display: block; height: 100%; }
+  .bar > span.ok { background: var(--ok); }
+  .bar > span.warn { background: var(--warn); }
+  .bar > span.err { background: var(--err); }
+
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+  pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 12px; line-height: 1.5; margin-top: 8px; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .badge.ok { background: rgba(74,222,128,0.14); color: var(--ok); }
+  .badge.warn { background: rgba(251,191,36,0.14); color: var(--warn); }
+  .badge.err { background: rgba(239,68,68,0.14); color: var(--err); }
+  .badge.info { background: rgba(96,165,250,0.14); color: var(--info); }
+  .badge.muted { background: var(--surface-2); color: var(--muted); }
+
+  .diff-before, .diff-after { padding: 14px 16px; border-radius: 8px; border: 1px solid var(--border); }
+  .diff-before { background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.3); }
+  .diff-after { background: rgba(74,222,128,0.06); border-color: rgba(74,222,128,0.3); }
+  .diff-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>V4.2 Closeout &amp; V4.3 Kickoff</h1>
+  <div class="sub">
+    <span class="pill ok">V4.2 Completed / Pass</span>
+    <span class="pill warn">V4.3 Executing · 1/5 items done</span>
+    <span class="pill">Extended Autonomy v1.3</span>
+    <span class="pill">2026-04-18</span>
+  </div>
+</header>
+
+<section>
+  <h2>At a glance</h2>
+  <div class="grid cols-3">
+    <div class="card">
+      <div class="k">PRs merged this session</div>
+      <div class="v"><span class="ok">5</span><small>of 5 budget (§6-D) — ceiling reached</small></div>
+      <div class="bar"><span class="ok" style="width:100%"></span></div>
+    </div>
+    <div class="card">
+      <div class="k">Full pytest</div>
+      <div class="v"><span class="ok">390</span><small>passed</small></div>
+      <div class="bar"><span class="ok" style="width:100%"></span></div>
+    </div>
+    <div class="card">
+      <div class="k">C2 retrieval sentinel</div>
+      <div class="v"><span class="ok">8/8</span><small>no drift</small></div>
+      <div class="bar"><span class="ok" style="width:100%"></span></div>
+    </div>
+    <div class="card">
+      <div class="k">R-2604-01 subset</div>
+      <div class="v"><span class="ok">122</span><small>was 7 fail + 8 error</small></div>
+      <div class="bar"><span class="ok" style="width:100%"></span></div>
+    </div>
+    <div class="card">
+      <div class="k">V4.2 tasks</div>
+      <div class="v"><span class="ok">5/5</span><small>all merged</small></div>
+      <div class="bar"><span class="ok" style="width:100%"></span></div>
+    </div>
+    <div class="card">
+      <div class="k">V4.3 items done</div>
+      <div class="v"><span class="warn">1/5</span><small>W-V43-3</small></div>
+      <div class="bar"><span class="warn" style="width:20%"></span><span style="width:80%"></span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>V4.2 — Multi-User Governance (closed)</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Task</th><th>PR</th><th>Merge commit</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>V4.2-T1</td><td>Rate Limit &amp; Quota</td><td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/39" target="_blank">#39</a></td><td class="mono">b8de2db</td><td class="status ok">Succeeded</td></tr>
+      <tr><td>V4.2-T2</td><td>Append-Only Audit Log</td><td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/40" target="_blank">#40</a></td><td class="mono">225ed1b</td><td class="status ok">Succeeded</td></tr>
+      <tr><td>V4.2-T3</td><td>Admin Role &amp; Dashboard</td><td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/42" target="_blank">#42</a></td><td class="mono">a8ae8dc</td><td class="status ok">Succeeded</td></tr>
+      <tr><td>V4.2-T4</td><td>Legacy Notebook Ownership Migration</td><td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/43" target="_blank">#43</a></td><td class="mono">19f97cd</td><td class="status ok">Succeeded</td></tr>
+      <tr><td>V4.2-T5</td><td>Foreign Key Enforcement</td><td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/41" target="_blank">#41</a></td><td class="mono">baa75a7</td><td class="status ok">Succeeded</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>This session's PRs</h2>
+  <table>
+    <thead><tr><th>#</th><th>PR</th><th>Scope</th><th>Type</th><th>Verification</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/43" target="_blank">#43</a></td>
+        <td>V4.2-T4 Legacy Notebook Migration — same-tx atomic audit + <code>--i-know-what-im-doing</code> gate</td>
+        <td><span class="badge info">Feature</span></td>
+        <td class="ok">390 pytest · 8 C2 · 4 sentinels</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/45" target="_blank">#45</a></td>
+        <td>Architectural risk register + R-2604-01 entry</td>
+        <td><span class="badge muted">Docs</span></td>
+        <td class="ok">390 pytest · 8 C2</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/46" target="_blank">#46</a></td>
+        <td>V4.3 scope draft + V4.1b absorption + V4.0 stale-status flag</td>
+        <td><span class="badge muted">Plan</span></td>
+        <td class="ok">390 pytest · 8 C2</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td><a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/pull/47" target="_blank">#47</a></td>
+        <td>W-V43-3 — R-2604-01 fix via conftest pre-import of fragile-guard modules</td>
+        <td><span class="badge info">Fix</span></td>
+        <td class="ok">390 pytest · 8 C2 · 122 subset</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td class="accent">PR-5 (this doc)</td>
+        <td>Visual acceptance dashboard</td>
+        <td><span class="badge muted">Docs</span></td>
+        <td class="muted">n/a (docs-only)</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>R-2604-01 — before / after</h2>
+  <div class="grid cols-2">
+    <div class="diff-before">
+      <div class="diff-label err">Before (main @ 7fd8877)</div>
+      <pre>$ pytest test_rate_limit.py test_audit_log.py test_audit_query.py \
+         test_fk_enforcement.py test_sqlite_migration.py \
+         test_storage_concurrency.py \
+         test_retrieval_quality.py test_retrieval_quality_regression.py
+
+FAILED test_retrieval_quality.py::TestRRFFusion
+FAILED test_retrieval_quality.py::TestMMR (x2)
+FAILED test_retrieval_quality.py::TestHybridRetrieve
+ERROR  test_retrieval_quality_regression.py (x8)
+
+7 failed, 107 passed, 8 errors in 9.49s</pre>
+    </div>
+    <div class="diff-after">
+      <div class="diff-label ok">After (fix/v4-3-test-isolation-r2604-01)</div>
+      <pre>$ pytest test_rate_limit.py test_audit_log.py test_audit_query.py \
+         test_fk_enforcement.py test_sqlite_migration.py \
+         test_storage_concurrency.py \
+         test_retrieval_quality.py test_retrieval_quality_regression.py
+
+122 passed in 252.50s</pre>
+    </div>
+  </div>
+  <h3>Root cause</h3>
+  <p>Five test modules <span class="mono">(test_rate_limit, test_auth_isolation, test_observability, test_llm_health, test_studio)</span> conditionally install a stub <span class="mono">core.retrieval.retriever</span> guarded by <span class="mono">if &quot;core.retrieval.retriever&quot; not in sys.modules</span>. The stub replaces <span class="mono">RetrieverEngine</span> with a <span class="mono">_FakeRetrieverEngine</span> that lacks <span class="mono">_rrf_fuse</span>. The full-suite alphabetical ordering happened to import the real module upstream — the 8-file subset broke that accident.</p>
+  <h3>Fix</h3>
+  <p>One conftest-level pre-import loop covers 7 fragile-guard modules (<span class="mono">retriever</span>, <span class="mono">graph_extractor</span>, <span class="mono">gateway</span>, <span class="mono">prompts</span>, <span class="mono">vllm_client</span>, <span class="mono">source</span>, <span class="mono">studio_output</span>). Stubbers' guards self-skip. Zero test-file edits.</p>
+</section>
+
+<section>
+  <h2>V4.3 — Observability, Tech-Debt Cleanup &amp; Test-Isolation Fix</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Item</th><th>Priority</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">W-V43-1</td><td><code>/metrics</code> Prometheus surface (env-gated, loopback-only)</td><td>P1</td><td class="status muted">Not started</td></tr>
+      <tr><td class="mono">W-V43-2</td><td>Close V4.1 Should-checklist</td><td>P2</td><td class="status muted">Not started</td></tr>
+      <tr><td class="mono">W-V43-3</td><td>Root-cause + fix R-2604-01 test-isolation fragility</td><td>P1</td><td class="status ok">Done (this PR chain)</td></tr>
+      <tr><td class="mono">W-V43-4</td><td>Widen Reviews DB Reviewer Model enum to include Opus 4.7</td><td>P2</td><td class="status muted">Not started</td></tr>
+      <tr><td class="mono">W-V43-5</td><td>Retroactive Opus 4.7 audit of V4.2 T1/T2/T3/T5 (<a href="https://github.com/kogamishinyajerry-ops/AI-Notebooklm/issues/44" target="_blank">Issue #44</a>)</td><td>P1</td><td class="status muted">Awaiting out-of-band Opus review</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Open items for Kogami</h2>
+  <table>
+    <thead><tr><th>Item</th><th>Why it needs you</th></tr></thead>
+    <tbody>
+      <tr><td>V4.0 Phase status</td><td>Stuck at <span class="mono">Executing / Conditional Pass</span>. §4 forbids Executor from mutating historical decisions. Kogami call: move to <code>Completed</code> or <code>Cancelled</code>.</td></tr>
+      <tr><td>V4.3 scope sign-off</td><td>Executor self-accepted under the &ldquo;continue until visual acceptance&rdquo; directive. Kogami can redirect before W-V43-1/2/4/5 start.</td></tr>
+      <tr><td>Retroactive Opus 4.7 audit</td><td>W-V43-5 / Issue #44 — requires out-of-band Opus 4.7 pass over V4.2 T1/T2/T3/T5 (T4 already audited).</td></tr>
+      <tr><td>Reviewer Model enum</td><td>Notion Reviews DB enum lacks <code>Opus 4.7</code>. Session used <code>Opus 4.6</code> as placeholder in 7 new review rows.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Notion anchors</h2>
+  <div class="grid cols-2">
+    <div class="card">
+      <div class="k">V4.2 Phase</div>
+      <div class="v" style="font-size:14px;">Completed / Pass / End 2026-04-18</div>
+      <div class="mono" style="color:var(--muted); font-size:11px;">f827385c-33e0-4639-be23-84b9026dc1b6</div>
+    </div>
+    <div class="card">
+      <div class="k">V4.3 Phase (Executing)</div>
+      <div class="v" style="font-size:14px;">Observability + Cleanup + R-2604-01</div>
+      <div class="mono" style="color:var(--muted); font-size:11px;">346c6894-2bed-8138-9aef-c0c0f8a2bf93</div>
+    </div>
+    <div class="card">
+      <div class="k">Session Acceptance Review</div>
+      <div class="v" style="font-size:14px;">Pass — covers PR #43/#45/#46</div>
+      <div class="mono" style="color:var(--muted); font-size:11px;">346c6894-2bed-8125-b833-f40f91403c92</div>
+    </div>
+    <div class="card">
+      <div class="k">Tasks DB (V4.2-T1..T5)</div>
+      <div class="v" style="font-size:14px;">All 5 backfilled, status Succeeded</div>
+      <div class="mono" style="color:var(--muted); font-size:11px;">342c6894-2bed-81b3-a844-c5f51c468872</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Governance posture</h2>
+  <div class="grid cols-3">
+    <div class="card"><div class="k">C1 — Airgap / no deps</div><div class="v"><span class="ok">✓</span></div><p class="mono" style="color:var(--muted); font-size:11px; margin-top:4px;">No external network, no new deps, no telemetry.</p></div>
+    <div class="card"><div class="k">C2 — Citation pipeline</div><div class="v"><span class="ok">✓</span></div><p class="mono" style="color:var(--muted); font-size:11px; margin-top:4px;">Sentinel 8/8 on every PR in this chain.</p></div>
+    <div class="card"><div class="k">C3 — Main via PR only</div><div class="v"><span class="ok">✓</span></div><p class="mono" style="color:var(--muted); font-size:11px; margin-top:4px;">4 PRs merged, 0 direct pushes, all squash-merged.</p></div>
+    <div class="card"><div class="k">§4 — Historical records</div><div class="v"><span class="ok">✓</span></div><p class="mono" style="color:var(--muted); font-size:11px; margin-top:4px;">V4.0 not mutated; V4.1 Next-Phase-Pointer preserved.</p></div>
+    <div class="card"><div class="k">§6-D — PR ceiling</div><div class="v"><span class="warn">5/5</span></div><p class="mono" style="color:var(--muted); font-size:11px; margin-top:4px;">Session ceiling reached. Auto-stop after this dashboard merges.</p></div>
+    <div class="card"><div class="k">Self-Review coverage</div><div class="v"><span class="ok">100%</span></div><p class="mono" style="color:var(--muted); font-size:11px; margin-top:4px;">Every PR has a Notion review row + in-PR Self-Review section.</p></div>
+  </div>
+</section>
+
+<footer>
+  Rendered from <span class="mono">docs/v4_2_acceptance_dashboard.html</span> on branch
+  <span class="mono">docs/v4-2-visual-acceptance</span>.
+  Autonomy posture: Extended Autonomy v1.3 / Executor=Claude Code Opus 4.7.
+  Open this file directly in any browser — no build step, no external assets.
+</footer>
+
+</body>
+</html>
