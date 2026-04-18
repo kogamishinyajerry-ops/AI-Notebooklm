@@ -9,11 +9,3 @@ class NotebookNotFound(HTTPException):
             status_code=404,
             detail=f"Notebook not found: {notebook_id}",
         )
-
-
-class SpaceNotEmpty(HTTPException):
-    def __init__(self, space_id: str):
-        super().__init__(
-            status_code=409,
-            detail=f"Space not empty: {space_id}",
-        )
