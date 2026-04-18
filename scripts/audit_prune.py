@@ -6,24 +6,27 @@ from datetime import date
 from pathlib import Path
 
 
-_DROP_TRIGGERS = """
-DROP TRIGGER IF EXISTS audit_events_no_update;
-DROP TRIGGER IF EXISTS audit_events_no_delete;
-"""
+_DROP_TRIGGER_STATEMENTS = (
+    "DROP TRIGGER IF EXISTS audit_events_no_update",
+    "DROP TRIGGER IF EXISTS audit_events_no_delete",
+)
 
-_CREATE_TRIGGERS = """
-CREATE TRIGGER IF NOT EXISTS audit_events_no_update
-BEFORE UPDATE ON audit_events
-BEGIN
-    SELECT RAISE(ABORT, 'audit_events is append-only');
-END;
-
-CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
-BEFORE DELETE ON audit_events
-BEGIN
-    SELECT RAISE(ABORT, 'audit_events is append-only');
-END;
-"""
+_CREATE_TRIGGER_STATEMENTS = (
+    """
+    CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+    BEFORE UPDATE ON audit_events
+    BEGIN
+        SELECT RAISE(ABORT, 'audit_events is append-only');
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+    BEFORE DELETE ON audit_events
+    BEGIN
+        SELECT RAISE(ABORT, 'audit_events is append-only');
+    END
+    """,
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -60,7 +63,8 @@ def main() -> int:
     conn = sqlite3.connect(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        conn.executescript(_DROP_TRIGGERS)
+        for statement in _DROP_TRIGGER_STATEMENTS:
+            conn.execute(statement)
         conn.execute(
             """
             DELETE FROM audit_events
@@ -69,7 +73,8 @@ def main() -> int:
             (before_date,),
         )
         deleted = conn.execute("SELECT changes()").fetchone()[0]
-        conn.executescript(_CREATE_TRIGGERS)
+        for statement in _CREATE_TRIGGER_STATEMENTS:
+            conn.execute(statement)
         conn.commit()
     except Exception:
         conn.rollback()
