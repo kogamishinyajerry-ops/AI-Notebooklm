@@ -28,6 +28,10 @@ _ALLOWED_FIELDS = {
     "orphan_id",
     "parent_table",
     "parent_column",
+    # V4.2-T3: admin.access observability (route path / method / query).
+    "admin.method",
+    "admin.path",
+    "admin.query",
 }
 
 

@@ -15,6 +15,8 @@ from fastapi.testclient import TestClient
 
 from apps.api.admin_routes import router as admin_router
 from core.governance.admin import ADMIN_PRINCIPALS_ENV
+from core.governance.audit_events import AuditEvent
+from core.governance.audit_logger import AuditLogger
 from core.governance.audit_store import AuditRecord, AuditStore
 from core.governance.quota_store import DailyUploadQuota, NotebookCountCap
 from core.storage.sqlite_db import get_connection, init_schema
@@ -74,7 +76,9 @@ def admin_client(tmp_path, monkeypatch):
     monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "alice")
 
     app = FastAPI()
-    app.state.audit_store = AuditStore(db_path=db_path)
+    audit_logger = AuditLogger(db_path=db_path)
+    app.state.audit_store = audit_logger.store
+    app.state.audit_logger = audit_logger
     app.state.upload_quota = DailyUploadQuota(db_path=db_path, daily_limit=10 * 1024 * 1024)
     app.state.notebook_cap = NotebookCountCap(db_path=db_path, max_count=50)
     app.include_router(admin_router)
@@ -122,8 +126,9 @@ def test_admin_audit_events_returns_desc(admin_client):
     for i in range(5):
         store.append(_mk_record(f"e{i}", f"2026-04-18T10:00:0{i}Z"))
 
+    # Filter by event to exclude the admin.access audit emitted by this call.
     r = admin_client.get(
-        "/api/v1/admin/audit/events",
+        "/api/v1/admin/audit/events?event=notebook.create",
         headers={"x-api-key": "key-alice"},
     )
     assert r.status_code == 200, r.text
@@ -139,14 +144,14 @@ def test_admin_audit_events_pagination(admin_client):
         store.append(_mk_record(f"e{i}", f"2026-04-18T10:00:0{i}Z"))
 
     page1 = admin_client.get(
-        "/api/v1/admin/audit/events?limit=3",
+        "/api/v1/admin/audit/events?limit=3&event=notebook.create",
         headers={"x-api-key": "key-alice"},
     ).json()
     assert [it["event_id"] for it in page1["items"]] == ["e7", "e6", "e5"]
     assert page1["next_cursor"] is not None
 
     page2 = admin_client.get(
-        f"/api/v1/admin/audit/events?limit=3&cursor={page1['next_cursor']}",
+        f"/api/v1/admin/audit/events?limit=3&event=notebook.create&cursor={page1['next_cursor']}",
         headers={"x-api-key": "key-alice"},
     ).json()
     assert [it["event_id"] for it in page2["items"]] == ["e4", "e3", "e2"]
@@ -259,3 +264,67 @@ def test_admin_quota_usage_503_when_allowlist_empty(admin_client, monkeypatch):
         headers={"x-api-key": "key-alice"},
     )
     assert r.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Step 7: ADMIN_ACCESS audit events
+# ---------------------------------------------------------------------------
+
+
+def test_admin_access_audit_emitted_on_success(admin_client):
+    """Each successful admin request appends an admin.access record."""
+    store: AuditStore = admin_client.app_obj.state.audit_store
+    admin_client.get("/api/v1/admin/health", headers={"x-api-key": "key-alice"})
+
+    events = store.query_events(event=AuditEvent.ADMIN_ACCESS.value).items
+    assert len(events) == 1
+    rec = events[0]
+    assert rec.principal_id == "alice"
+    assert rec.outcome == "success"
+    assert rec.resource_type == "admin.endpoint"
+    assert rec.resource_id == "/api/v1/admin/health"
+    assert rec.http_status == 200
+
+
+def test_admin_access_audit_includes_path_method(admin_client):
+    store: AuditStore = admin_client.app_obj.state.audit_store
+    admin_client.get(
+        "/api/v1/admin/audit/events?limit=5",
+        headers={"x-api-key": "key-alice"},
+    )
+    events = store.query_events(event=AuditEvent.ADMIN_ACCESS.value).items
+    assert len(events) == 1
+    payload = events[0].payload_json
+    assert "GET" in payload
+    assert "/api/v1/admin/audit/events" in payload
+    assert "admin.method" in payload
+    assert "limit" in payload  # query param captured
+
+
+def test_admin_access_audit_not_emitted_on_403(admin_client):
+    store: AuditStore = admin_client.app_obj.state.audit_store
+    # Non-admin caller — 403. Must NOT produce an admin.access record.
+    r = admin_client.get("/api/v1/admin/health", headers={"x-api-key": "key-bob"})
+    assert r.status_code == 403
+    events = store.query_events(event=AuditEvent.ADMIN_ACCESS.value).items
+    assert events == []
+
+
+def test_admin_access_audit_not_emitted_on_401(admin_client):
+    store: AuditStore = admin_client.app_obj.state.audit_store
+    r = admin_client.get("/api/v1/admin/health")
+    assert r.status_code == 401
+    events = store.query_events(event=AuditEvent.ADMIN_ACCESS.value).items
+    assert events == []
+
+
+def test_admin_access_audit_records_per_request(admin_client):
+    """Three successful requests → three distinct audit rows."""
+    store: AuditStore = admin_client.app_obj.state.audit_store
+    for _ in range(3):
+        admin_client.get("/api/v1/admin/health", headers={"x-api-key": "key-alice"})
+
+    events = store.query_events(event=AuditEvent.ADMIN_ACCESS.value).items
+    assert len(events) == 3
+    # All distinct event_ids.
+    assert len({e.event_id for e in events}) == 3

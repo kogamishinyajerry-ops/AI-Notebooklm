@@ -149,6 +149,7 @@ def test_audit_event_enum_is_complete():
         "quota.denied",
         "auth.denied",
         "integrity.repair",
+        "admin.access",
     ]
 
 

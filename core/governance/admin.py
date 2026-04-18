@@ -72,6 +72,43 @@ def resolve_admin(principal_id: str) -> bool:
     return principal_id in get_admin_principal_ids()
 
 
+def audit_admin_access(request: Request, principal: "AuthPrincipal") -> None:
+    """Emit an ADMIN_ACCESS audit event after a successful admin resolution.
+
+    Called from :func:`require_admin` once the caller has been verified as an
+    admin. Not wired as a router-level Depends because those run *before*
+    route-level Depends, which would audit 401/403 attempts as successful
+    admin access. Keeping it inside require_admin guarantees that only the
+    200 path emits.
+
+    Failure to emit is logged but does not break the route (observability
+    must not 500 a legitimate admin call).
+    """
+    audit_logger = getattr(request.app.state, "audit_logger", None)
+    if audit_logger is None:
+        return
+
+    from core.governance.audit_events import AuditEvent
+
+    try:
+        audit_logger.record(
+            event=AuditEvent.ADMIN_ACCESS,
+            outcome="success",
+            resource_type="admin.endpoint",
+            resource_id=request.url.path,
+            http_status=200,
+            request=request,
+            principal_id=principal.principal_id,
+            payload={
+                "admin.method": request.method,
+                "admin.path": request.url.path,
+                "admin.query": dict(request.query_params),
+            },
+        )
+    except Exception:  # pragma: no cover
+        logger.exception("admin.access audit record failed")
+
+
 def require_admin(request: Request) -> "AuthPrincipal":
     """FastAPI dependency: gate a route to admin-only access.
 
@@ -108,4 +145,8 @@ def require_admin(request: Request) -> "AuthPrincipal":
         raise HTTPException(status_code=401, detail="API key required")
     if not principal.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
+    # ADMIN_ACCESS audit event — fires only on successful admin resolution,
+    # not on 401/403 paths. Any audit failure is logged but does not break
+    # the admin call (observability must not 500 a legitimate request).
+    audit_admin_access(request, principal)
     return principal
