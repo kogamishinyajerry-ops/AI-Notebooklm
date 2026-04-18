@@ -19,3 +19,4 @@ class AuditEvent(str, Enum):
     GRAPH_GENERATE = "graph.generate"
     QUOTA_DENIED = "quota.denied"
     AUTH_DENIED = "auth.denied"
+    INTEGRITY_REPAIR = "integrity.repair"

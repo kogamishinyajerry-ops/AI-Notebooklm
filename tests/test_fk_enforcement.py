@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sqlite3
 import sys
 import types
@@ -31,6 +32,59 @@ def _minimal_graph():
         ],
         edges=[],
         generated_at="2026-04-18T00:00:00+00:00",
+    )
+
+
+def _insert_notebook(conn, notebook_id: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO notebooks (id, name, created_at, updated_at, source_count, owner_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            notebook_id,
+            f"Notebook {notebook_id}",
+            "2026-04-18T00:00:00+00:00",
+            "2026-04-18T00:00:00+00:00",
+            0,
+            None,
+        ),
+    )
+
+
+def _insert_orphan_note(conn, note_id: str = "orphan-note", notebook_id: str = "ghost") -> None:
+    conn.execute(
+        """
+        INSERT INTO notes (id, notebook_id, title, content, citations, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            note_id,
+            notebook_id,
+            "Orphan",
+            "content",
+            "[]",
+            "2026-04-18T00:00:00+00:00",
+            "2026-04-18T00:00:00+00:00",
+        ),
+    )
+
+
+def _insert_orphan_graph(conn, notebook_id: str = "ghost-graph") -> None:
+    conn.execute(
+        """
+        INSERT INTO knowledge_graphs
+            (notebook_id, nodes, edges, mindmap, generated_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            notebook_id,
+            "[]",
+            "[]",
+            None,
+            "2026-04-18T00:00:00+00:00",
+            "2026-04-18T00:00:00+00:00",
+        ),
     )
 
 
@@ -279,6 +333,114 @@ def test_foreign_key_check_clean_after_migration(tmp_path, _import_sqlite_db):
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         conn.close()
+
+
+def test_orphan_repair_check_reports_counts(tmp_path, _import_sqlite_db, capsys):
+    sqlite_db = _import_sqlite_db
+    db_path = tmp_path / "fk.db"
+
+    conn = sqlite_db.get_connection(db_path)
+    sqlite_db.init_schema(conn)
+    conn.execute("PRAGMA foreign_keys=OFF")
+    _insert_orphan_note(conn)
+    _insert_orphan_graph(conn)
+    conn.commit()
+    conn.close()
+
+    from scripts import audit_integrity
+
+    exit_code = audit_integrity.main(["--db", str(db_path), "--check"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "notes: 1" in captured.out
+    assert "knowledge_graphs: 1" in captured.out
+    assert "total: 2" in captured.out
+
+
+def test_orphan_repair_confirm_deletes_and_emits_audit(tmp_path, _import_sqlite_db):
+    sqlite_db = _import_sqlite_db
+    db_path = tmp_path / "fk.db"
+
+    conn = sqlite_db.get_connection(db_path)
+    sqlite_db.init_schema(conn)
+    conn.execute("PRAGMA foreign_keys=OFF")
+    _insert_orphan_note(conn)
+    _insert_orphan_graph(conn)
+    conn.commit()
+    conn.close()
+
+    from scripts import audit_integrity
+
+    exit_code = audit_integrity.main(["--db", str(db_path), "--repair", "--confirm"])
+    assert exit_code == 0
+
+    conn = sqlite_db.get_connection(db_path)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM knowledge_graphs").fetchone()[0] == 0
+        rows = conn.execute(
+            """
+            SELECT event, payload_json
+            FROM audit_events
+            WHERE event = ?
+            ORDER BY ts_utc ASC
+            """,
+            ("integrity.repair",),
+        ).fetchall()
+        assert len(rows) == 2
+        payloads = [json.loads(row["payload_json"]) for row in rows]
+        assert {payload["orphan_table"] for payload in payloads} == {
+            "notes",
+            "knowledge_graphs",
+        }
+        assert all(payload["parent_table"] == "notebooks" for payload in payloads)
+        assert all(payload["parent_column"] == "id" for payload in payloads)
+    finally:
+        conn.close()
+
+
+def test_orphan_repair_is_idempotent(tmp_path, _import_sqlite_db):
+    sqlite_db = _import_sqlite_db
+    db_path = tmp_path / "fk.db"
+
+    conn = sqlite_db.get_connection(db_path)
+    sqlite_db.init_schema(conn)
+    conn.execute("PRAGMA foreign_keys=OFF")
+    _insert_orphan_note(conn)
+    conn.commit()
+    conn.close()
+
+    from scripts import audit_integrity
+
+    first = audit_integrity.repair_orphans(db_path, confirm=True)
+    second = audit_integrity.repair_orphans(db_path, confirm=True)
+
+    assert first["notes"] == 1
+    assert second["notes"] == 0
+    assert sum(second.values()) == 0
+
+
+def test_audit_event_integrity_repair_in_enum():
+    from core.governance.audit_events import AuditEvent
+    from core.governance.audit_redact import redact
+
+    assert AuditEvent.INTEGRITY_REPAIR.value == "integrity.repair"
+    payload = redact(
+        {
+            "orphan_table": "notes",
+            "orphan_id": "orphan-note",
+            "parent_table": "notebooks",
+            "parent_column": "id",
+            "secret": "must-drop",
+        }
+    )
+    assert payload == {
+        "orphan_table": "notes",
+        "orphan_id": "orphan-note",
+        "parent_table": "notebooks",
+        "parent_column": "id",
+    }
 
 
 def test_migration_refuses_to_start_with_orphans_without_repair(tmp_path):
