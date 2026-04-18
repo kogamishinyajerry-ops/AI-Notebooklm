@@ -135,6 +135,40 @@ CREATE TABLE IF NOT EXISTS daily_upload_usage (
     PRIMARY KEY (principal_id, usage_date)
 );
 CREATE INDEX IF NOT EXISTS idx_daily_upload_date ON daily_upload_usage(usage_date);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    event_id            TEXT PRIMARY KEY,
+    ts_utc              TEXT NOT NULL,
+    event               TEXT NOT NULL,
+    outcome             TEXT NOT NULL CHECK (outcome IN ('success', 'failure')),
+    actor_type          TEXT NOT NULL CHECK (actor_type IN ('user', 'system', 'anonymous')),
+    principal_id        TEXT NOT NULL,
+    request_id          TEXT NOT NULL,
+    remote_addr         TEXT NOT NULL,
+    resource_type       TEXT NOT NULL,
+    resource_id         TEXT NOT NULL,
+    parent_resource_id  TEXT NOT NULL,
+    http_status         INTEGER NOT NULL,
+    error_code          TEXT NOT NULL,
+    payload_json        TEXT NOT NULL,
+    schema_version      INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_events(ts_utc);
+CREATE INDEX IF NOT EXISTS idx_audit_principal_ts ON audit_events(principal_id, ts_utc);
+CREATE INDEX IF NOT EXISTS idx_audit_event_ts ON audit_events(event, ts_utc);
+CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_events(resource_type, resource_id);
+
+CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+BEFORE UPDATE ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit_events is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+BEFORE DELETE ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit_events is append-only');
+END;
 """
 
 
