@@ -6,6 +6,7 @@ import re
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from limits.storage.memory import MemoryStorage
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -91,9 +92,24 @@ limiter = Limiter(key_func=_principal_key, default_limits=[])
 
 
 def setup_rate_limit(app: FastAPI) -> None:
-    # Each process starts with a fresh in-memory bucket store. Resetting during setup
-    # keeps repeated app construction in tests from leaking counters across app instances.
-    limiter._storage.reset()
+    if not getattr(app.state, "_rate_limit_routes_initialized", False):
+        limiter._route_limits.clear()
+        limiter._dynamic_route_limits.clear()
+        marked = getattr(limiter, "_Limiter__marked_for_limiting", None)
+        if marked is not None:
+            marked.clear()
+        app.state._rate_limit_routes_initialized = True
+
+    # Each app setup gets a fresh in-memory bucket store. Replacing the storage object,
+    # rather than resetting the existing one, prevents lingering TestClient/app instances
+    # from sharing chat buckets during full-suite execution.
+    limiter._storage = MemoryStorage()
+    limiter._limiter = type(limiter._limiter)(limiter._storage)
+    if getattr(limiter, "_fallback_limiter", None) is not None:
+        limiter._fallback_storage = MemoryStorage()
+        limiter._fallback_limiter = type(limiter._fallback_limiter)(
+            limiter._fallback_storage
+        )
     app.state.limiter = limiter
 
     if not getattr(app.state, "_rate_limit_handler_registered", False):
