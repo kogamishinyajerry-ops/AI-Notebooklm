@@ -14,6 +14,7 @@ API_KEYS_ENV = "NOTEBOOKLM_API_KEYS"
 @dataclass(frozen=True)
 class AuthPrincipal:
     principal_id: str
+    is_admin: bool = False
 
 
 def _parse_registry(raw: str) -> Dict[str, AuthPrincipal]:
@@ -87,4 +88,14 @@ def get_current_principal(request: Request) -> Optional[AuthPrincipal]:
     if principal is None:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
+    # V4.2-T3: enrich principal with admin status (env-backed allowlist).
+    # Lazy import to avoid a hard cycle (admin.require_admin imports from auth).
+    from core.governance.admin import resolve_admin
+
+    is_admin = resolve_admin(principal.principal_id)
+    if is_admin != principal.is_admin:
+        principal = AuthPrincipal(
+            principal_id=principal.principal_id,
+            is_admin=is_admin,
+        )
     return principal

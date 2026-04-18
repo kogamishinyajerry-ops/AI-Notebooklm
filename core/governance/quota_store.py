@@ -100,48 +100,78 @@ class DailyUploadQuota:
         finally:
             conn.close()
 
-    def check_and_record(self, principal_id: str, bytes_to_add: int) -> int:
+    def check_and_record(
+        self,
+        principal_id: str,
+        bytes_to_add: int,
+        is_admin: bool = False,
+    ) -> int:
         if not principal_id:
             raise ValueError("principal_id is required")
         if bytes_to_add < 0:
             raise ValueError("bytes_to_add must be non-negative")
         if bytes_to_add == 0:
             return self.get_usage(principal_id)
-        if bytes_to_add > self.daily_limit:
+        if not is_admin and bytes_to_add > self.daily_limit:
             raise QuotaExceededError("upload_bytes")
 
         usage_date = self._usage_date()
         conn = _open_connection(self.db_path)
         try:
-            conn.execute(
-                """
-                INSERT INTO daily_upload_usage (
-                    principal_id,
-                    usage_date,
-                    bytes_used,
-                    updated_at
+            if is_admin:
+                # Bypass the cap but still record the usage so admin traffic
+                # shows up in dashboard snapshots (FD-10 observability).
+                conn.execute(
+                    """
+                    INSERT INTO daily_upload_usage (
+                        principal_id,
+                        usage_date,
+                        bytes_used,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (principal_id, usage_date)
+                    DO UPDATE SET
+                        bytes_used = daily_upload_usage.bytes_used + excluded.bytes_used,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        principal_id,
+                        usage_date,
+                        bytes_to_add,
+                        self._updated_at(),
+                    ),
                 )
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT (principal_id, usage_date)
-                DO UPDATE SET
-                    bytes_used = daily_upload_usage.bytes_used + excluded.bytes_used,
-                    updated_at = excluded.updated_at
-                WHERE daily_upload_usage.bytes_used + excluded.bytes_used <= ?
-                """,
-                (
-                    principal_id,
-                    usage_date,
-                    bytes_to_add,
-                    self._updated_at(),
-                    self.daily_limit,
-                ),
-            )
-            changed = int(
-                conn.execute("SELECT changes() AS rowcount").fetchone()["rowcount"]
-            )
-            if changed == 0:
-                conn.rollback()
-                raise QuotaExceededError("upload_bytes")
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO daily_upload_usage (
+                        principal_id,
+                        usage_date,
+                        bytes_used,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (principal_id, usage_date)
+                    DO UPDATE SET
+                        bytes_used = daily_upload_usage.bytes_used + excluded.bytes_used,
+                        updated_at = excluded.updated_at
+                    WHERE daily_upload_usage.bytes_used + excluded.bytes_used <= ?
+                    """,
+                    (
+                        principal_id,
+                        usage_date,
+                        bytes_to_add,
+                        self._updated_at(),
+                        self.daily_limit,
+                    ),
+                )
+                changed = int(
+                    conn.execute("SELECT changes() AS rowcount").fetchone()["rowcount"]
+                )
+                if changed == 0:
+                    conn.rollback()
+                    raise QuotaExceededError("upload_bytes")
 
             row = conn.execute(
                 """
@@ -155,6 +185,36 @@ class DailyUploadQuota:
             return int(row["bytes_used"]) if row else 0
         finally:
             conn.close()
+
+    def snapshot_all_principals(self, usage_date: str | None = None) -> list[dict]:
+        """Aggregate per-principal bytes_used for a given UTC date.
+
+        Returns rows sorted by bytes_used DESC for dashboard relevance.
+        Empty DB -> empty list.
+        """
+        target_date = usage_date or self._usage_date()
+        conn = _open_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                """
+                SELECT principal_id, usage_date, bytes_used
+                FROM daily_upload_usage
+                WHERE usage_date = ?
+                ORDER BY bytes_used DESC, principal_id ASC
+                """,
+                (target_date,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {
+                "principal_id": row["principal_id"],
+                "usage_date": row["usage_date"],
+                "bytes_used": int(row["bytes_used"]),
+                "daily_limit": self.daily_limit,
+            }
+            for row in rows
+        ]
 
 
 class NotebookCountCap:
@@ -186,9 +246,9 @@ class NotebookCountCap:
         finally:
             conn.close()
 
-    def check(self, owner_id: str) -> int:
+    def check(self, owner_id: str, is_admin: bool = False) -> int:
         current_count = self.count(owner_id)
-        if current_count >= self.max_count:
+        if not is_admin and current_count >= self.max_count:
             raise QuotaExceededError("notebook_count")
         return current_count
 
@@ -196,6 +256,7 @@ class NotebookCountCap:
         self,
         owner_id: str,
         action: Callable[[Any], _T],
+        is_admin: bool = False,
     ) -> _T:
         """Serialize COUNT + insert work inside a single SQLite write transaction."""
         if not owner_id:
@@ -209,7 +270,7 @@ class NotebookCountCap:
                 (owner_id,),
             ).fetchone()
             current_count = int(row["count"]) if row else 0
-            if current_count >= self.max_count:
+            if not is_admin and current_count >= self.max_count:
                 conn.rollback()
                 raise QuotaExceededError("notebook_count")
 
@@ -223,3 +284,29 @@ class NotebookCountCap:
             raise
         finally:
             conn.close()
+
+    def snapshot_all_principals(self) -> list[dict]:
+        """Aggregate notebook count per owner for the admin dashboard.
+
+        Returns rows sorted by count DESC. Empty DB -> empty list.
+        """
+        conn = _open_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                """
+                SELECT owner_id AS principal_id, COUNT(*) AS count
+                FROM notebooks
+                GROUP BY owner_id
+                ORDER BY count DESC, owner_id ASC
+                """,
+            ).fetchall()
+        finally:
+            conn.close()
+        return [
+            {
+                "principal_id": row["principal_id"],
+                "count": int(row["count"]),
+                "max_count": self.max_count,
+            }
+            for row in rows
+        ]

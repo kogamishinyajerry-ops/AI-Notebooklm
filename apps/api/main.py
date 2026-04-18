@@ -58,7 +58,9 @@ from core.governance.quota_store import DailyUploadQuota, NotebookCountCap, Quot
 from core.governance.rate_limit import (
     CHAT_RATE_EXCEEDED_DETAIL,
     _get_chat_rate,
+    is_admin_exempt,
     limiter,
+    mark_admin_request,
     rate_limit_exception_handler,
     setup_rate_limit,
 )
@@ -130,6 +132,9 @@ def on_startup():
     if audit_logger is None:
         audit_logger = AuditLogger(db_path=_DB_PATH)
     app.state.audit_logger = audit_logger
+    app.state.upload_quota = upload_quota
+    app.state.notebook_cap = notebook_cap
+    app.state.audit_store = audit_logger.store
     setup_rate_limit(app)
 
     # Gap-A: inject graph signal into the retriever
@@ -189,9 +194,21 @@ async def add_request_observability(request: Request, call_next):
 static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "static")
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 
+# V4.2-T3: admin read-only endpoints (require_admin-gated).
+from apps.api.admin_routes import router as admin_router
+app.include_router(admin_router)
+
 @app.get("/")
 async def read_index():
     return FileResponse(os.path.join(static_path, "index.html"))
+
+
+# V4.2-T3: admin dashboard UI (vanilla HTML, gated at the API layer, not here —
+# the UI is harmless without a valid x-api-key because every fetch goes through
+# require_admin).
+@app.get("/admin/ui/")
+async def admin_ui():
+    return FileResponse(os.path.join(static_path, "admin.html"))
 
 # Domain Models
 class Citation(BaseModel):
@@ -229,6 +246,7 @@ def _principal_owner_id(principal: Optional[AuthPrincipal]) -> Optional[str]:
 def get_current_principal(request: Request) -> Optional[AuthPrincipal]:
     principal = _auth_get_current_principal(request)
     request.state.principal = principal
+    mark_admin_request(bool(getattr(principal, "is_admin", False)))
     return principal
 
 
@@ -705,7 +723,11 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
         ) from exc
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
-@limiter.limit(_get_chat_rate, error_message=CHAT_RATE_EXCEEDED_DETAIL)
+@limiter.limit(
+    _get_chat_rate,
+    error_message=CHAT_RATE_EXCEEDED_DETAIL,
+    exempt_when=is_admin_exempt,
+)
 async def chat_endpoint(
     request: Request,
     chat_request: ChatRequest,
