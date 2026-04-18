@@ -41,6 +41,9 @@ is rejected by SQLite and translated to:
 Deleting a notebook cascades child rows in SQLite. Application code should not
 manually delete child rows as part of notebook deletion.
 
+Future SQLite-backed stores must use `core.storage.sqlite_db.get_connection()`.
+Direct `sqlite3.connect(...)` calls do not inherit the project FK settings.
+
 ## Migration
 
 The migration lives in:
@@ -139,3 +142,10 @@ python3 scripts/audit_integrity.py --db data/notebooks.db --repair --confirm
 
 Then restart the API. If `PRAGMA foreign_key_check` still reports rows after
 repair, stop and inspect the table names before changing schema behavior.
+
+If high write concurrency produces `SQLITE_BUSY`, remember that notebook delete
+operations now cascade through all child tables in one SQLite write transaction.
+Check WAL health and checkpoint behavior before changing FK settings.
+
+Audit logs contain the explicit parent action, such as `notebook.delete`.
+SQLite CASCADE side effects do not emit one audit event per child row.

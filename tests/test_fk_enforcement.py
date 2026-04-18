@@ -88,6 +88,18 @@ def _insert_orphan_graph(conn, notebook_id: str = "ghost-graph") -> None:
     )
 
 
+def _index_names(conn) -> set[str]:
+    rows = conn.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'index'
+          AND name NOT LIKE 'sqlite_autoindex_%'
+        """
+    ).fetchall()
+    return {str(row["name"] if hasattr(row, "keys") else row[0]) for row in rows}
+
+
 @pytest.fixture(autouse=True)
 def _stub_transaction_module(tmp_path):
     for name in list(sys.modules):
@@ -190,6 +202,27 @@ def test_migration_is_idempotent(tmp_path, _import_sqlite_db):
         assert row["name"] == "Idempotent Notebook"
     finally:
         conn.close()
+
+
+def test_migration_preserves_explicit_indexes(tmp_path, _import_sqlite_db):
+    sqlite_db = _import_sqlite_db
+    db_path = tmp_path / "fk.db"
+
+    raw_conn = sqlite3.connect(db_path)
+    try:
+        raw_conn.executescript(sqlite_db._SCHEMA_SQL)
+        before = _index_names(raw_conn)
+    finally:
+        raw_conn.close()
+
+    conn = sqlite_db.get_connection(db_path)
+    sqlite_db.init_schema(conn)
+    try:
+        after = _index_names(conn)
+    finally:
+        conn.close()
+
+    assert before == after
 
 
 def test_fk_cascade_notebook_delete_removes_notes(tmp_path):
@@ -321,6 +354,42 @@ def test_fk_reject_note_create_with_missing_notebook(tmp_path):
     assert exc_info.value.detail == "Notebook not found: ghost"
 
 
+def test_fk_reject_source_register_with_missing_notebook(tmp_path):
+    from core.storage.exceptions import NotebookNotFound
+    from core.storage.source_registry import SourceRegistry
+
+    store = SourceRegistry(db_path=tmp_path / "fk.db")
+    with pytest.raises(NotebookNotFound) as exc_info:
+        store.register("ghost", "ghost.pdf", "/tmp/ghost.pdf")
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Notebook not found: ghost"
+
+
+def test_fk_reject_chat_append_with_missing_notebook(tmp_path):
+    from core.storage.chat_history_store import ChatHistoryStore
+    from core.storage.exceptions import NotebookNotFound
+
+    store = ChatHistoryStore(db_path=tmp_path / "fk.db")
+    with pytest.raises(NotebookNotFound) as exc_info:
+        store.append("ghost", "user", "hello")
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Notebook not found: ghost"
+
+
+def test_fk_reject_studio_create_with_missing_notebook(tmp_path):
+    from core.storage.exceptions import NotebookNotFound
+    from core.storage.studio_store import StudioStore
+
+    store = StudioStore(db_path=tmp_path / "fk.db")
+    with pytest.raises(NotebookNotFound) as exc_info:
+        store.create("ghost", "summary", "content", citations=[])
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Notebook not found: ghost"
+
+
 def test_fk_reject_knowledge_graph_create_with_missing_notebook(tmp_path):
     from core.storage.exceptions import NotebookNotFound
     from core.storage.graph_store import GraphStore
@@ -331,6 +400,41 @@ def test_fk_reject_knowledge_graph_create_with_missing_notebook(tmp_path):
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Notebook not found: ghost"
+
+
+def test_cold_start_migration_repairs_orphans_and_emits_audit(tmp_path, _import_sqlite_db):
+    sqlite_db = _import_sqlite_db
+    db_path = tmp_path / "fk.db"
+
+    raw_conn = sqlite3.connect(db_path)
+    try:
+        raw_conn.executescript(sqlite_db._SCHEMA_SQL)
+        raw_conn.execute("PRAGMA foreign_keys=OFF")
+        _insert_orphan_note(raw_conn)
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+    conn = sqlite_db.get_connection(db_path)
+    sqlite_db.init_schema(conn)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0] == 0
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        audit_row = conn.execute(
+            """
+            SELECT payload_json
+            FROM audit_events
+            WHERE event = ?
+            """,
+            ("integrity.repair",),
+        ).fetchone()
+        assert audit_row is not None
+        payload = json.loads(audit_row["payload_json"])
+        assert payload["orphan_table"] == "notes"
+        assert payload["orphan_id"] == "orphan-note"
+    finally:
+        conn.close()
 
 
 def test_foreign_key_check_clean_after_migration(tmp_path, _import_sqlite_db):
