@@ -14,6 +14,7 @@ API_KEYS_ENV = "NOTEBOOKLM_API_KEYS"
 @dataclass(frozen=True)
 class AuthPrincipal:
     principal_id: str
+    is_admin: bool = False
 
 
 def _parse_registry(raw: str) -> Dict[str, AuthPrincipal]:
