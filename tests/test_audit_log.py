@@ -150,6 +150,7 @@ def test_audit_event_enum_is_complete():
         "auth.denied",
         "integrity.repair",
         "admin.access",
+        "notebook.migrate_owner",
     ]
 
 

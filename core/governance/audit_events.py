@@ -21,3 +21,4 @@ class AuditEvent(str, Enum):
     AUTH_DENIED = "auth.denied"
     INTEGRITY_REPAIR = "integrity.repair"
     ADMIN_ACCESS = "admin.access"
+    NOTEBOOK_MIGRATE_OWNER = "notebook.migrate_owner"

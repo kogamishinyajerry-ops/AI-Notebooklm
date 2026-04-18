@@ -32,6 +32,10 @@ _ALLOWED_FIELDS = {
     "admin.method",
     "admin.path",
     "admin.query",
+    # V4.2-T4: notebook.migrate_owner provenance (from → to, forced flag).
+    "migrate.from_owner",
+    "migrate.to_owner",
+    "migrate.forced",
 }
 
 
