@@ -202,6 +202,14 @@ app.include_router(admin_router)
 async def read_index():
     return FileResponse(os.path.join(static_path, "index.html"))
 
+
+# V4.2-T3: admin dashboard UI (vanilla HTML, gated at the API layer, not here —
+# the UI is harmless without a valid x-api-key because every fetch goes through
+# require_admin).
+@app.get("/admin/ui/")
+async def admin_ui():
+    return FileResponse(os.path.join(static_path, "admin.html"))
+
 # Domain Models
 class Citation(BaseModel):
     source_file: str
