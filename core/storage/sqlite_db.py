@@ -126,6 +126,15 @@ CREATE TABLE IF NOT EXISTS knowledge_graphs (
     updated_at   TEXT NOT NULL,
     FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS daily_upload_usage (
+    principal_id TEXT NOT NULL,
+    usage_date   TEXT NOT NULL,   -- YYYY-MM-DD UTC
+    bytes_used   INTEGER NOT NULL DEFAULT 0,
+    updated_at   TEXT NOT NULL,
+    PRIMARY KEY (principal_id, usage_date)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_upload_date ON daily_upload_usage(usage_date);
 """
 
 

@@ -1,13 +1,15 @@
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi import Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import os
 import sys
+import sqlite3
 import requests
 import logging
 import time
@@ -44,16 +46,33 @@ from core.llm.vllm_client import (
     get_local_llm_config,
     probe_local_llm,
 )
-from core.security.auth import AuthPrincipal, auth_is_enabled, get_current_principal
+from core.security.auth import (
+    AuthPrincipal,
+    auth_is_enabled,
+    get_current_principal as _auth_get_current_principal,
+)
+from core.governance.quota_store import DailyUploadQuota, NotebookCountCap, QuotaExceededError
+from core.governance.rate_limit import (
+    CHAT_RATE_EXCEEDED_DETAIL,
+    _get_chat_rate,
+    limiter,
+    setup_rate_limit,
+)
+from core.models.notebook import Notebook
 from core.observability.logging_utils import emit_json_log
+from slowapi.middleware import SlowAPIMiddleware
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
+setup_rate_limit(app)
+app.add_middleware(SlowAPIMiddleware)
 logger = logging.getLogger("comac.api")
 
 # Initialize shared services (non-storage)
 ingestion_service = IngestionService()
 retriever_engine = RetrieverEngine()
 graph_extractor = GraphExtractor()
+upload_quota: Optional[DailyUploadQuota] = None
+notebook_cap: Optional[NotebookCountCap] = None
 
 # V4.1-T2: Storage store placeholders — initialized in on_startup (after all imports)
 # Deferred import avoids triggering core.storage.sqlite_db when test_cross_notebook_isolation
@@ -70,6 +89,7 @@ graph_store = None
 def on_startup():
     # V4.1-T2: Deferred imports — avoid triggering sqlite_db when core.storage is stubbed
     global notebook_store, source_registry, note_store, chat_history_store, studio_store, graph_store
+    global upload_quota, notebook_cap
     from core.storage.sqlite_db import run_migration_if_needed
     from core.storage.notebook_store import NotebookStore
     from core.storage.source_registry import SourceRegistry
@@ -97,6 +117,11 @@ def on_startup():
     chat_history_store = ChatHistoryStore(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
     studio_store = StudioStore(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
     graph_store = GraphStore(db_path=_DB_PATH, spaces_dir=DEFAULT_SPACES_DIR)
+    if upload_quota is None:
+        upload_quota = DailyUploadQuota(db_path=_DB_PATH)
+    if notebook_cap is None:
+        notebook_cap = NotebookCountCap(db_path=_DB_PATH)
+    setup_rate_limit(app)
 
     # Gap-A: inject graph signal into the retriever
     retriever_engine.graph_store = graph_store
@@ -192,6 +217,84 @@ def _principal_owner_id(principal: Optional[AuthPrincipal]) -> Optional[str]:
     return principal.principal_id if principal else None
 
 
+def get_current_principal(request: Request) -> Optional[AuthPrincipal]:
+    principal = _auth_get_current_principal(request)
+    request.state.principal = principal
+    return principal
+
+
+@app.exception_handler(QuotaExceededError)
+async def handle_quota_exceeded(
+    request: Request,
+    exc: QuotaExceededError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"detail": exc.detail, "retry_after": exc.retry_after},
+        headers={"Retry-After": str(exc.retry_after)},
+    )
+
+
+def _get_upload_quota() -> DailyUploadQuota:
+    global upload_quota
+    if upload_quota is None:
+        upload_quota = DailyUploadQuota(db_path=_DB_PATH)
+    return upload_quota
+
+
+def _get_notebook_cap() -> NotebookCountCap:
+    global notebook_cap
+    if notebook_cap is None:
+        notebook_cap = NotebookCountCap(db_path=_DB_PATH)
+    return notebook_cap
+
+
+def _build_notebook(name: str, owner_id: Optional[str]) -> Notebook:
+    try:
+        from core.ingestion.transaction import utc_now_iso as _utc_now_iso
+        now = _utc_now_iso()
+    except (ImportError, AttributeError):
+        now = datetime.now(timezone.utc).isoformat()
+    return Notebook(
+        id=str(uuid.uuid4()),
+        name=name.strip(),
+        created_at=now,
+        updated_at=now,
+        source_count=0,
+        owner_id=owner_id,
+    )
+
+
+def _insert_notebook_row(conn: sqlite3.Connection, notebook: Notebook) -> None:
+    conn.execute(
+        """INSERT INTO notebooks
+           (id, name, created_at, updated_at, source_count, owner_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            notebook.id,
+            notebook.name,
+            notebook.created_at,
+            notebook.updated_at,
+            notebook.source_count,
+            notebook.owner_id,
+        ),
+    )
+
+
+def _create_owned_notebook(name: str, owner_id: Optional[str]) -> Notebook:
+    store_module = getattr(getattr(notebook_store, "__class__", None), "__module__", "")
+    if owner_id is None or store_module != "core.storage.notebook_store":
+        return notebook_store.create(name, owner_id=owner_id)
+
+    notebook = _build_notebook(name, owner_id)
+    _get_notebook_cap().execute_with_slot(
+        owner_id,
+        lambda conn: _insert_notebook_row(conn, notebook),
+    )
+    (DEFAULT_SPACES_DIR / notebook.id).mkdir(parents=True, exist_ok=True)
+    return notebook
+
+
 def _require_notebook_access(
     notebook_id: str,
     principal: Optional[AuthPrincipal],
@@ -206,6 +309,14 @@ def _require_notebook_access(
             raise HTTPException(status_code=403, detail="Notebook access denied")
 
     return notebook
+
+
+def _measure_upload_bytes(upload: UploadFile) -> int:
+    original_position = upload.file.tell()
+    upload.file.seek(0, os.SEEK_END)
+    size = upload.file.tell()
+    upload.file.seek(original_position)
+    return size
 
 # --- Notes models ---
 class NoteCreateRequest(BaseModel):
@@ -243,8 +354,9 @@ def create_space(
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Legacy alias for creating a notebook-backed knowledge space."""
+    owner_id = _principal_owner_id(principal)
     try:
-        notebook = notebook_store.create(name, owner_id=_principal_owner_id(principal))
+        notebook = _create_owned_notebook(name, owner_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"space_id": notebook.id, "name": notebook.name}
@@ -254,11 +366,9 @@ def create_notebook(
     request: NotebookCreateRequest,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
+    owner_id = _principal_owner_id(principal)
     try:
-        notebook = notebook_store.create(
-            request.name,
-            owner_id=_principal_owner_id(principal),
-        )
+        notebook = _create_owned_notebook(request.name, owner_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return notebook.to_dict()
@@ -371,9 +481,10 @@ def invoke_local_llm(system_prompt: str, user_query: str) -> str:
         ) from exc
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
+@limiter.limit(_get_chat_rate, error_message=CHAT_RATE_EXCEEDED_DETAIL)
 async def chat_endpoint(
-    request: ChatRequest,
-    http_request: Request,
+    request: Request,
+    chat_request: ChatRequest,
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """
@@ -384,7 +495,7 @@ async def chat_endpoint(
     Returns HTTP 400 if the notebook does not exist.
     Returns HTTP 503 if the local LLM service is unavailable.
     """
-    notebook_id = request.resolved_notebook_id
+    notebook_id = chat_request.resolved_notebook_id
 
     # 1. Resolve notebook and its source_ids for retrieval scoping
     source_ids: list[str] | None = None
@@ -408,7 +519,7 @@ async def chat_endpoint(
     # 2. Retrieve — scoped to this notebook's source_ids when available
     retrieval_started_at = time.perf_counter()
     contexts = retriever_engine.retrieve(
-        request.query,
+        chat_request.query,
         top_k=5,
         final_k=3,
         source_ids=source_ids if source_ids else None,
@@ -420,7 +531,7 @@ async def chat_endpoint(
         emit_json_log(
             logger,
             "retrieval.summary",
-            request_id=getattr(http_request.state, "request_id", None),
+            request_id=getattr(request.state, "request_id", None),
             notebook_id=notebook_id,
             source_scope_size=len(source_ids or []),
             contexts_returned=0,
@@ -441,12 +552,12 @@ async def chat_endpoint(
 
     # 4. Generate (LLM) — raise 503 if service unavailable
     try:
-        raw_response = invoke_local_llm(system_prompt, request.query)
+        raw_response = invoke_local_llm(system_prompt, chat_request.query)
     except LLMUnavailableError as exc:
         emit_json_log(
             logger,
             "retrieval.summary",
-            request_id=getattr(http_request.state, "request_id", None),
+            request_id=getattr(request.state, "request_id", None),
             notebook_id=notebook_id,
             source_scope_size=len(source_ids or []),
             contexts_returned=len(contexts),
@@ -476,9 +587,9 @@ async def chat_endpoint(
     ]
 
     # 6. Persist chat history
-    if request.save_history and notebook_id:
+    if chat_request.save_history and notebook_id:
         try:
-            chat_history_store.append(notebook_id, "user", request.query)
+            chat_history_store.append(notebook_id, "user", chat_request.query)
             chat_history_store.append(
                 notebook_id,
                 "assistant",
@@ -492,7 +603,7 @@ async def chat_endpoint(
     emit_json_log(
         logger,
         "retrieval.summary",
-        request_id=getattr(http_request.state, "request_id", None),
+        request_id=getattr(request.state, "request_id", None),
         notebook_id=notebook_id,
         source_scope_size=len(source_ids or []),
         contexts_returned=len(contexts),
@@ -516,6 +627,9 @@ async def upload_source(
 ):
     """Uploads and triggers ingestion for a document."""
     _require_notebook_access(notebook_id, principal)
+    owner_id = _principal_owner_id(principal)
+    if owner_id is not None:
+        _get_upload_quota().check_and_record(owner_id, _measure_upload_bytes(file))
 
     upload_dir = source_registry.spaces_dir / notebook_id / "docs"
     os.makedirs(upload_dir, exist_ok=True)

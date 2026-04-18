@@ -1,0 +1,257 @@
+# V4.1-T1 Retrieval Quality CI Baseline — Golden Query Set
+# FAA Part 25 (20 queries) + CCAR-25 (10 queries)
+# Corresponds to notebook_id: nb-faa-baseline (FAA) / nb-ccar-baseline (CCAR)
+# Source: FAA_Part25.pdf (local corpus at data/docs/FAA_Part25.pdf)
+#
+# Fields:
+#   id:             unique query identifier
+#   question:       natural-language query (Chinese or English)
+#   expected_pages: PDF page numbers that contain the answer (from manual annotation)
+#   keywords:       additional keyword hints for hit validation
+#   notebook_id:   which eval notebook this query belongs to
+#   corpus:        which PDF/doc this query targets
+#   note:          optional context
+
+faa_queries:
+  - id: q-faa-001
+    question: "失速演示和失速警告有哪些要求？"
+    expected_pages: [1]
+    keywords: ["stall demonstration", "stall warning", "stall speed"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "TOC chunk covering Part 25 stalls section (§§25.201–25.207)"
+
+  - id: q-faa-002
+    question: "结构疲劳评估和 LOV 需要满足什么要求？"
+    expected_pages: [65]
+    keywords: ["fatigue evaluation", "LOV", "widespread fatigue damage", "damage tolerance"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "Structural fatigue / Limit of Validity (§25.571)"
+
+  - id: q-faa-003
+    question: "鸟撞损伤的适航要求是什么？"
+    expected_pages: [78]
+    keywords: ["bird strike damage", "empennage structure"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.631 Bird strike damage — confirmed hit at page 78 rank 1"
+
+  - id: q-faa-004
+    question: "停车刹车的合规要求是什么？"
+    expected_pages: [86]
+    keywords: ["parking brake", "prevent the airplane from rolling"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.735 Brakes and braking systems — confirmed hit at page 86 rank 1"
+
+  - id: q-faa-005
+    question: "紧急撤离和紧急出口要满足哪些要求？"
+    expected_pages: [99]
+    keywords: ["emergency evacuation", "emergency exits", "Type A exit"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.807 Emergency exits — expected page 99 (not in current top-5)"
+
+  - id: q-faa-006
+    question: "下舱服务舱的紧急疏散路线要求是什么？"
+    expected_pages: [109]
+    keywords: ["lower deck service compartment", "emergency evacuation routes"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.995 Lower deck service compartment evacuation — MISSING family (V4.0 best-weight eval)"
+
+  - id: q-faa-007
+    question: "燃油箱通气和燃油箱出口有哪些要求？"
+    expected_pages: [130]
+    keywords: ["fuel tank outlet", "vent line", "fuel tank vent"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.963 Fuel tank outlet / §25.975 Fuel tank vent — MISSING family (V4.0 best-weight eval)"
+
+  - id: q-faa-008
+    question: "电气电子系统的防雷要求是什么？"
+    expected_pages: [152]
+    keywords: ["lightning protection", "electrical and electronic system"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.1316 Lightning protection — confirmed hit at page 152 rank 5"
+
+  - id: q-faa-009
+    question: "液压系统试验和压力约束有哪些要求？"
+    expected_pages: [169]
+    keywords: ["hydraulic system", "tests must be conducted"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.1435 Hydraulic systems — confirmed hit at page 169 rank 2"
+
+  - id: q-faa-010
+    question: "襟翼放出速度 VFE 应如何建立？"
+    expected_pages: [176]
+    keywords: ["flap extended speed", "VFE"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "VFE definition in §25.101 — confirmed keyword hit at rank 2 (page mismatch)"
+
+  - id: q-faa-011
+    question: "EWIS 的功能和安装要求是什么？"
+    expected_pages: [183]
+    keywords: ["EWIS", "function and installation"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.1703 Function and installation: EWIS — confirmed hit at page 183 rank 4"
+
+  - id: q-faa-012
+    question: "连续结冰条件下降和进近构型需要考虑什么？"
+    expected_pages: [280]
+    keywords: ["icing conditions", "descent", "approach configuration"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "Appendix C icing conditions — confirmed hit at page 280 rank 1"
+
+  # ── 8 new FAA Part 25 queries (added for V4.1) ──────────────────────────
+
+  - id: q-faa-013
+    question: "飞机结构疲劳损伤容限评估需要满足哪些条件？"
+    expected_pages: [65]
+    keywords: ["damage tolerance", "structural fatigue", "residual strength"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.571 Damage tolerance evaluation of structure"
+
+  - id: q-faa-014
+    question: "应急发电系统和备用电源有哪些要求？"
+    expected_pages: [158]
+    keywords: ["emergency power", "standby power", "battery", "generating system"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.1351 Electrical and electronic system battery / generating"
+
+  - id: q-faa-015
+    question: "螺旋桨间距和桨叶净距要求是多少？"
+    expected_pages: [77]
+    keywords: ["propeller clearance", "blade clearance", "propeller pitch"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.145 Propeller clearance"
+
+  - id: q-faa-016
+    question: "飞行记录仪和舱音记录仪有哪些要求？"
+    expected_pages: [320]
+    keywords: ["flight recorder", "CVR", "cockpit voice recorder"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.1453 Flight recorders — Appendix M"
+
+  - id: q-faa-017
+    question: "增压舱和舱门需要做什么强度试验？"
+    expected_pages: [113]
+    keywords: ["pressurized cabin", "pressure vessel", "strength test"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.365 Pressurized cabin strength test"
+
+  - id: q-faa-018
+    question: "着陆距离和加速-停止距离如何计算？"
+    expected_pages: [45]
+    keywords: ["landing distance", "accelerate-stop distance", "balanced field length"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.109 Landing distance / §25.101 General (takeoff)"
+
+  - id: q-faa-019
+    question: "起落架收放机构需要满足什么要求？"
+    expected_pages: [73]
+    keywords: ["landing gear", "retraction", "emergency lowering"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.729 Landing gear retraction"
+
+  - id: q-faa-020
+    question: "座椅和约束系统强度要求是什么？"
+    expected_pages: [62]
+    keywords: ["seat strength", "restraint system", "occupant protection"]
+    notebook_id: nb-faa-baseline
+    corpus: FAA_Part25.pdf
+    note: "§25.561 General (structural) / §25.785 Seats and restraint systems"
+
+ccar_queries:
+  - id: q-ccar-001
+    question: "CCAR-25 中飞机的极限载荷因子要求是什么？"
+    expected_pages: [1]
+    keywords: ["limit load factor", "ultimate load factor", "结构载荷"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25对应FAR Part 25 §25.201–§25.251 飞行载荷章节"
+
+  - id: q-ccar-002
+    question: "CCAR-25 失速特性要求是什么？"
+    expected_pages: [1]
+    keywords: ["失速", "stall characteristics"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 §25.201–§25.207 失速特性"
+
+  - id: q-ccar-003
+    question: "CCAR-25 对应急撤离系统有哪些要求？"
+    expected_pages: [99]
+    keywords: ["应急撤离", "emergency exits", "疏散"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 §25.807–§25.813 应急出口要求"
+
+  - id: q-ccar-004
+    question: "CCAR-25 防火和灭火系统要求是什么？"
+    expected_pages: [145]
+    keywords: ["fire protection", "灭火", "fire extinguisher"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 §25.851–§25.865 防火系统"
+
+  - id: q-ccar-005
+    question: "CCAR-25 燃油系统设计和通气要求是什么？"
+    expected_pages: [130]
+    keywords: ["燃油系统", "fuel system", "通气"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 §25.951–§25.975 燃油系统"
+
+  - id: q-ccar-006
+    question: "CCAR-25 电气系统防雷击设计要求是什么？"
+    expected_pages: [152]
+    keywords: ["防雷", "lightning protection", "电气系统"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 §25.1316 电气电子系统防雷"
+
+  - id: q-ccar-007
+    question: "CCAR-25 对飞行记录仪有哪些规定？"
+    expected_pages: [320]
+    keywords: ["飞行记录仪", "flight recorder", "舱音记录"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 §25.1453 飞行记录仪规定"
+
+  - id: q-ccar-008
+    question: "CCAR-25 结冰条件下飞行有什么特殊要求？"
+    expected_pages: [280]
+    keywords: ["结冰", "icing conditions", "防冰"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 Appendix C / §25.1419 结冰条件"
+
+  - id: q-ccar-009
+    question: "CCAR-25 座椅和约束系统适航要求是什么？"
+    expected_pages: [62]
+    keywords: ["座椅", "seats", "约束系统"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 §25.785 座椅和约束系统"
+
+  - id: q-ccar-010
+    question: "CCAR-25 液压系统设计和试验要求是什么？"
+    expected_pages: [169]
+    keywords: ["液压系统", "hydraulic system", "试验"]
+    notebook_id: nb-ccar-baseline
+    corpus: CCAR-25.pdf
+    note: "CCAR-25 §25.1435 液压系统"
