@@ -266,10 +266,26 @@ def _principal_owner_id(principal: Optional[AuthPrincipal]) -> Optional[str]:
     return principal.principal_id if principal else None
 
 
+def _admin_runtime_bypass_enabled(
+    request: Request,
+    principal: Optional[AuthPrincipal],
+) -> bool:
+    """Enable admin bypass only on explicit admin-route requests.
+
+    V4.3 tightens the runtime policy so an admin principal does not get
+    quota/rate-limit bypass on ordinary user-facing routes purely by virtue of
+    identity. The current admin surface is read-only and lives under
+    ``/api/v1/admin/*``.
+    """
+    if not getattr(principal, "is_admin", False):
+        return False
+    return request.url.path.startswith("/api/v1/admin/")
+
+
 def get_current_principal(request: Request) -> Optional[AuthPrincipal]:
     principal = _auth_get_current_principal(request)
     request.state.principal = principal
-    mark_admin_request(bool(getattr(principal, "is_admin", False)))
+    mark_admin_request(_admin_runtime_bypass_enabled(request, principal))
     return principal
 
 

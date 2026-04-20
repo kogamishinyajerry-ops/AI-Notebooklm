@@ -145,6 +145,11 @@ def require_admin(request: Request) -> "AuthPrincipal":
         raise HTTPException(status_code=401, detail="API key required")
     if not principal.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
+    # V4.3: runtime bypass must be explicitly activated by the admin path,
+    # not by admin identity on ordinary user-facing routes.
+    from core.governance.rate_limit import mark_admin_request
+
+    mark_admin_request(True)
     # ADMIN_ACCESS audit event — fires only on successful admin resolution,
     # not on 401/403 paths. Any audit failure is logged but does not break
     # the admin call (observability must not 500 a legitimate request).

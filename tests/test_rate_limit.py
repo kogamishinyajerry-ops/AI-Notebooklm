@@ -677,6 +677,54 @@ def test_admin_role_bypass_quota(fresh_rate_limit_state, monkeypatch):
         assert r.status_code == 200, r.text
 
 
+def test_main_app_admin_identity_does_not_bypass_chat_rate_limit(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice,root:key-root")
+    monkeypatch.setenv("NOTEBOOKLM_ADMIN_PRINCIPALS", "root")
+    monkeypatch.setenv("NOTEBOOKLM_CHAT_RATE", "3/minute")
+
+    api_main = _import_main_api(tmp_path)
+    api_main.upload_quota = None
+    api_main.notebook_cap = None
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: []
+
+    payload = {"query": "hello from root", "save_history": False}
+
+    with TestClient(api_main.app) as client:
+        for _ in range(3):
+            response = client.post(
+                "/api/v1/chat",
+                headers={"x-api-key": "key-root"},
+                json=payload,
+            )
+            assert response.status_code == 200
+
+        blocked = client.post(
+            "/api/v1/chat",
+            headers={"x-api-key": "key-root"},
+            json=payload,
+        )
+
+    assert blocked.status_code == 429
+
+
+def test_main_app_admin_health_keeps_admin_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice,root:key-root")
+    monkeypatch.setenv("NOTEBOOKLM_ADMIN_PRINCIPALS", "root")
+
+    api_main = _import_main_api(tmp_path)
+    api_main.upload_quota = None
+    api_main.notebook_cap = None
+
+    with TestClient(api_main.app) as client:
+        response = client.get(
+            "/api/v1/admin/health",
+            headers={"x-api-key": "key-root"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["caller"] == {"principal_id": "root", "is_admin": True}
+
+
 def test_is_admin_exempt_reads_contextvar():
     """is_admin_exempt() returns the contextvar set by mark_admin_request."""
     rate_limit_module = _load_rate_limit_module()
