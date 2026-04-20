@@ -539,6 +539,14 @@ def test_corrupted_json_causes_migration_failure(tmp_path, _import_sqlite_db):
     row = conn.execute("SELECT COUNT(*) as c FROM notebooks").fetchone()
     assert row["c"] == 0
     conn.close()
+    assert notebooks_json.exists()
+    assert (nb_dir / "notes.json").exists()
+    assert (nb_dir / "sources.json").exists()
+    assert (nb_dir / "chat_history.json").exists()
+    assert (nb_dir / "studio.json").exists()
+    assert (nb_dir / "graph.json").exists()
+    assert not list(data_dir.glob("*.v4_1_migrated"))
+    assert not list(nb_dir.glob("*.v4_1_migrated"))
 
 
 def test_wal_mode_enabled(tmp_path, _import_sqlite_db):
