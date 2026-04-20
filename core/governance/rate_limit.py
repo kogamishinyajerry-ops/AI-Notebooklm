@@ -4,6 +4,7 @@ import contextvars
 import logging
 import os
 import re
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -13,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from core.observability.logging_utils import emit_json_log
+from core.governance.sqlite_rate_limit_storage import SQLiteFixedWindowStorage
 
 
 # Per-request admin flag. slowapi's exempt_when signature is () -> bool, so it
@@ -35,6 +37,7 @@ DEFAULT_CHAT_RATE = "30/minute"
 DEFAULT_RETRY_AFTER_SECONDS = 60
 CHAT_RATE_DIMENSION = "chat_requests"
 CHAT_RATE_EXCEEDED_DETAIL = f"Rate limit exceeded: {CHAT_RATE_DIMENSION}"
+RATE_LIMIT_DB_PATH_STATE = "rate_limit_db_path"
 
 _RATE_PATTERN = re.compile(r"^\d+/(second|minute|hour|day)s?$", re.IGNORECASE)
 
@@ -112,6 +115,23 @@ def _detect_worker_count() -> int:
     return workers if workers > 0 else 1
 
 
+def _resolve_rate_limit_db_path(app: FastAPI) -> Path | None:
+    value = getattr(app.state, RATE_LIMIT_DB_PATH_STATE, None)
+    if value in (None, ""):
+        return None
+    return Path(value)
+
+
+def _build_rate_limit_storage(
+    app: FastAPI,
+    workers: int,
+) -> tuple[MemoryStorage | SQLiteFixedWindowStorage, str, Path | None]:
+    db_path = _resolve_rate_limit_db_path(app)
+    if workers > 1 and db_path is not None:
+        return SQLiteFixedWindowStorage(db_path), "sqlite", db_path
+    return MemoryStorage(), "memory", db_path
+
+
 limiter = Limiter(key_func=_principal_key, default_limits=[])
 
 
@@ -124,10 +144,14 @@ def setup_rate_limit(app: FastAPI) -> None:
             marked.clear()
         app.state._rate_limit_routes_initialized = True
 
-    # Each app setup gets a fresh in-memory bucket store. Replacing the storage object,
-    # rather than resetting the existing one, prevents lingering TestClient/app instances
-    # from sharing chat buckets during full-suite execution.
-    limiter._storage = MemoryStorage()
+    workers = _detect_worker_count()
+    storage, backend, db_path = _build_rate_limit_storage(app, workers)
+
+    # Each app setup gets a fresh limiter storage choice. Default single-worker
+    # test apps keep the isolated in-memory semantics, while multi-worker app
+    # setups can opt into a shared local SQLite backend by exposing db_path on
+    # app.state.
+    limiter._storage = storage
     limiter._limiter = type(limiter._limiter)(limiter._storage)
     if getattr(limiter, "_fallback_limiter", None) is not None:
         limiter._fallback_storage = MemoryStorage()
@@ -135,25 +159,35 @@ def setup_rate_limit(app: FastAPI) -> None:
             limiter._fallback_storage
         )
     app.state.limiter = limiter
+    app.state.rate_limit_backend = backend
 
     if not getattr(app.state, "_rate_limit_handler_registered", False):
         app.add_exception_handler(RateLimitExceeded, rate_limit_exception_handler)
         app.state._rate_limit_handler_registered = True
 
-    workers = _detect_worker_count()
     if workers > 1 and not getattr(app.state, "_rate_limit_worker_warned", False):
         effective_chat_rate = _get_chat_rate()
-        logger.warning(
-            "rate_limit.multi_worker_warning: MemoryStore is per-process; "
-            "effective chat_requests limit is approximately %sx %s",
-            workers,
-            effective_chat_rate,
-        )
+        if backend == "sqlite":
+            logger.info(
+                "rate_limit.multi_worker_warning: shared SQLite backend enabled for "
+                "chat_requests across %s workers at %s",
+                workers,
+                db_path,
+            )
+        else:
+            logger.warning(
+                "rate_limit.multi_worker_warning: MemoryStore is per-process; "
+                "effective chat_requests limit is approximately %sx %s",
+                workers,
+                effective_chat_rate,
+            )
         emit_json_log(
             logger,
             "rate_limit.multi_worker_warning",
             workers=workers,
-            effective_multiplier=workers,
+            backend=backend,
+            db_path=str(db_path) if db_path is not None else None,
+            effective_multiplier=1 if backend == "sqlite" else workers,
             effective_chat_rate=effective_chat_rate,
         )
         app.state._rate_limit_worker_warned = True
