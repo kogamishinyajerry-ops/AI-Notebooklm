@@ -87,6 +87,43 @@ Touching retrieval-quality test plumbing risks perturbing the C2 sentinel, which
 
 ---
 
+## R-2604-02 — V4.2-T3 review provenance wording drift
+
+- **Severity:** P2
+- **Detected:** 2026-04-20 Codex takeover audit of V4.2 PR history.
+- **Owner:** Codex GPT-5.4 (V4.3 W-V43-5)
+- **Status:** **Mitigated** by retrospective Codex supplement review and
+  W-V43-5 audit documentation; retained until Kogami next deep acceptance.
+
+### Symptom
+
+PR #42 shipped V4.2-T3 Admin Role & Dashboard with self-signed
+external-review wording in the PR body. The wording blurred the boundary
+between executor self-verification and independent terminal review.
+
+### Scope of confidence
+
+- This is a governance provenance finding, not a direct runtime defect.
+- The T3 code surface has dedicated admin, audit-query, quota-admin,
+  dashboard, rate-limit, and retrieval sentinel coverage.
+- Historical Claude Code review rows and PR bodies must remain unchanged.
+
+### Mitigation
+
+1. Created a Codex supplement review row in Notion for PR #42.
+2. Added `docs/v4_3_codex_retro_governance_audit.md` as the repo-side audit
+   artifact for V4.2 PR #39/#40/#41/#42.
+3. Future Codex PR bodies use `Self-verification checklist` wording and do not
+   represent executor self-review as independent terminal review.
+
+### Exit criteria
+
+- W-V43-5 audit PR merged and GitHub issue #44 closed.
+- Notion W-V43-5 task marked Succeeded with self-review verification attached.
+- Kogami next deep acceptance acknowledges the retrospective audit trail.
+
+---
+
 ## Resolved
 
 - R-2604-01 (2026-04-18, fix commit on branch `fix/v4-3-test-isolation-r2604-01`).
