@@ -28,14 +28,16 @@ Rules:
 
 ## What admin bypasses
 
-Admin principals skip quota/rate-limit dimensions but still have their activity
-recorded for observability:
+V4.3 tightens runtime behavior: admin identity alone does **not** grant bypass
+on ordinary user-facing routes. The current admin surface is read-only and
+under `/api/v1/admin/*`, so bypass activation is now path-scoped rather than
+principal-scoped.
 
 | Dimension                     | Admin behavior                                             |
 |-------------------------------|------------------------------------------------------------|
-| Chat rate limit (slowapi)     | Bypassed via `exempt_when=is_admin_exempt`                 |
-| Daily upload bytes cap        | Bypassed; **bytes still recorded** in `daily_upload_usage` |
-| Notebook count cap            | Bypassed                                                   |
+| Chat rate limit (slowapi)     | Normal `/api/v1/chat` traffic is still enforced            |
+| Daily upload bytes cap        | Store-level bypass API exists; main app does not auto-use it |
+| Notebook count cap            | Store-level bypass API exists; main app does not auto-use it |
 | Authentication                | **Not** bypassed (always required)                         |
 | Append-only audit             | Every admin endpoint call emits `admin.access`             |
 
@@ -127,5 +129,5 @@ curl -H "x-api-key: $ADMIN_KEY" http://localhost:8000/api/v1/admin/health
 - binary `is_admin` (no role hierarchy in T3)
 - admins are a strict subset of authenticated principals
 - admin.access audit rows are append-only (T2 triggers still apply)
-- the dashboard ships read-only; write operations remain on the normal routes,
-  which admins can still call with quota bypass
+- the dashboard ships read-only; user-facing routes keep ordinary enforcement
+  even when the caller is an admin principal
