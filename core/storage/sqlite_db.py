@@ -16,7 +16,10 @@ C1 compliant: local file only, no network calls, no telemetry.
 from __future__ import annotations
 
 import json
+import os
+import queue
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +33,135 @@ from core.storage.migrations import apply_pending
 # Connection factory
 # ---------------------------------------------------------------------------
 
+SQLITE_POOL_SIZE_ENV = "NOTEBOOKLM_SQLITE_POOL_SIZE"
+
+
+def _configure_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _parse_pool_size() -> int:
+    raw = os.getenv(SQLITE_POOL_SIZE_ENV, "").strip()
+    if not raw:
+        return 0
+    try:
+        value = int(raw)
+    except ValueError:
+        return 0
+    return max(value, 0)
+
+
+class _PooledSQLiteConnection(sqlite3.Connection):
+    """sqlite3 connection whose close() returns it to the owning pool."""
+
+    _pool: "_SQLiteConnectionPool | None" = None
+    _leased: bool = False
+
+    def close(self) -> None:  # type: ignore[override]
+        pool = self._pool
+        if pool is None:
+            super().close()
+            return
+        pool.release(self)
+
+    def _really_close(self) -> None:
+        self._pool = None
+        self._leased = False
+        super().close()
+
+
+class _SQLiteConnectionPool:
+    def __init__(self, db_path: Path, max_size: int) -> None:
+        self.db_path = db_path
+        self.max_size = max_size
+        self._idle: queue.LifoQueue[_PooledSQLiteConnection] = queue.LifoQueue(
+            maxsize=max_size
+        )
+        self._lock = threading.Lock()
+        self._created = 0
+
+    def acquire(self) -> _PooledSQLiteConnection:
+        try:
+            conn = self._idle.get_nowait()
+        except queue.Empty:
+            conn = sqlite3.connect(
+                str(self.db_path),
+                timeout=5.0,
+                check_same_thread=False,
+                factory=_PooledSQLiteConnection,
+            )
+            conn._pool = self
+            with self._lock:
+                self._created += 1
+        conn._leased = True
+        return _configure_connection(conn)  # type: ignore[return-value]
+
+    def release(self, conn: _PooledSQLiteConnection) -> None:
+        if not conn._leased:
+            return
+        conn._leased = False
+        try:
+            if conn.in_transaction:
+                conn.rollback()
+            _configure_connection(conn)
+        except sqlite3.Error:
+            conn._really_close()
+            return
+
+        try:
+            self._idle.put_nowait(conn)
+        except queue.Full:
+            conn._really_close()
+
+    def close_all(self) -> None:
+        while True:
+            try:
+                conn = self._idle.get_nowait()
+            except queue.Empty:
+                return
+            conn._really_close()
+
+    @property
+    def created(self) -> int:
+        with self._lock:
+            return self._created
+
+
+_POOLS: dict[Path, _SQLiteConnectionPool] = {}
+_POOLS_LOCK = threading.Lock()
+
+
+def _pool_for(db_path: Path, max_size: int) -> _SQLiteConnectionPool:
+    resolved = db_path.resolve()
+    with _POOLS_LOCK:
+        pool = _POOLS.get(resolved)
+        if pool is None or pool.max_size != max_size:
+            if pool is not None:
+                pool.close_all()
+            pool = _SQLiteConnectionPool(resolved, max_size=max_size)
+            _POOLS[resolved] = pool
+        return pool
+
+
+def close_connection_pools() -> None:
+    """Close all idle pooled SQLite connections.
+
+    Primarily used by tests and process shutdown hooks. Leased connections still
+    belong to their callers and will close or return when the caller calls
+    ``close()``.
+    """
+    with _POOLS_LOCK:
+        pools = list(_POOLS.values())
+        _POOLS.clear()
+    for pool in pools:
+        pool.close_all()
+
+
 def get_connection(db_path: str | Path) -> sqlite3.Connection:
     """
     Open a SQLite connection to *db_path* with:
@@ -38,13 +170,12 @@ def get_connection(db_path: str | Path) -> sqlite3.Connection:
       - PRAGMA busy_timeout = 5000 (wait up to 5s for locks)
       - PRAGMA synchronous = NORMAL (balanced durability/speed)
     """
+    db_path = Path(db_path)
+    pool_size = _parse_pool_size()
+    if pool_size > 0:
+        return _pool_for(db_path, pool_size).acquire()
     conn = sqlite3.connect(str(db_path), timeout=5.0, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.row_factory = sqlite3.Row
-    return conn
+    return _configure_connection(conn)
 
 
 # ---------------------------------------------------------------------------
