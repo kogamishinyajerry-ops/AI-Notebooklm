@@ -120,8 +120,11 @@ def _build_chat_client(
     rate_limit_module,
     *,
     inject_principal: bool = False,
+    rate_limit_db_path: Path | None = None,
 ) -> TestClient:
     app = FastAPI()
+    if rate_limit_db_path is not None:
+        app.state.rate_limit_db_path = rate_limit_db_path
     rate_limit_module.setup_rate_limit(app)
     app.add_middleware(SlowAPIMiddleware)
 
@@ -350,6 +353,44 @@ def test_chat_rate_limit_state_resets_per_app_instance(fresh_rate_limit_state):
     )
 
     assert fresh_response.status_code == 200
+
+
+def test_multi_worker_chat_rate_limit_shared_across_app_instances(
+    fresh_rate_limit_state,
+    monkeypatch,
+):
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    monkeypatch.setenv("NOTEBOOKLM_CHAT_RATE", "3/minute")
+    rate_limit_module = _load_rate_limit_module()
+    first_client = _build_chat_client(
+        rate_limit_module,
+        inject_principal=True,
+        rate_limit_db_path=fresh_rate_limit_state,
+    )
+
+    for _ in range(3):
+        response = first_client.post(
+            "/api/v1/chat",
+            headers={"x-principal-id": "alice"},
+        )
+        assert response.status_code == 200
+
+    blocked = first_client.post("/api/v1/chat", headers={"x-principal-id": "alice"})
+    assert blocked.status_code == 429
+    assert first_client.app.state.rate_limit_backend == "sqlite"
+
+    second_client = _build_chat_client(
+        rate_limit_module,
+        inject_principal=True,
+        rate_limit_db_path=fresh_rate_limit_state,
+    )
+    shared_block = second_client.post(
+        "/api/v1/chat",
+        headers={"x-principal-id": "alice"},
+    )
+
+    assert second_client.app.state.rate_limit_backend == "sqlite"
+    assert shared_block.status_code == 429
 
 
 def test_429_response_format(fresh_rate_limit_state, monkeypatch):
@@ -666,3 +707,17 @@ def test_multi_worker_warning_emitted(tmp_path, monkeypatch, caplog):
         "rate_limit.multi_worker_warning" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_multi_worker_main_app_uses_shared_sqlite_storage(tmp_path, monkeypatch):
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+
+    api_main = _import_main_api(tmp_path)
+    api_main.upload_quota = None
+    api_main.notebook_cap = None
+
+    with TestClient(api_main.app) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+
+    assert api_main.app.state.rate_limit_backend == "sqlite"

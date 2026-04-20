@@ -76,6 +76,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 app = FastAPI(title="COMAC Intelligent NotebookLM API")
+app.state.rate_limit_db_path = _DB_PATH
 setup_rate_limit(app)
 app.add_middleware(SlowAPIMiddleware)
 logger = logging.getLogger("comac.api")
@@ -142,6 +143,7 @@ def on_startup():
     app.state.upload_quota = upload_quota
     app.state.notebook_cap = notebook_cap
     app.state.audit_store = audit_logger.store
+    app.state.rate_limit_db_path = _DB_PATH
     setup_rate_limit(app)
 
     # Gap-A: inject graph signal into the retriever
