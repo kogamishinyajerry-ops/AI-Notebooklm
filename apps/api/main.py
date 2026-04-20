@@ -66,6 +66,12 @@ from core.governance.rate_limit import (
 )
 from core.models.notebook import Notebook
 from core.observability.logging_utils import emit_json_log
+from core.observability.metrics import (
+    MetricsRegistry,
+    is_loopback_client,
+    metrics_allow_remote,
+    metrics_enabled,
+)
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -73,6 +79,7 @@ app = FastAPI(title="COMAC Intelligent NotebookLM API")
 setup_rate_limit(app)
 app.add_middleware(SlowAPIMiddleware)
 logger = logging.getLogger("comac.api")
+metrics_registry = MetricsRegistry()
 
 # Initialize shared services (non-storage)
 ingestion_service = IngestionService()
@@ -165,6 +172,12 @@ async def add_request_observability(request: Request, call_next):
         response = await call_next(request)
     except Exception as exc:
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        metrics_registry.observe_http_request(
+            method=request.method,
+            path=request.url.path,
+            status_code=500,
+            duration_ms=duration_ms,
+        )
         emit_json_log(
             logger,
             "http.request",
@@ -179,6 +192,14 @@ async def add_request_observability(request: Request, call_next):
 
     response.headers["X-Request-ID"] = request_id
     duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", request.url.path)
+    metrics_registry.observe_http_request(
+        method=request.method,
+        path=route_path,
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+    )
     emit_json_log(
         logger,
         "http.request",
@@ -507,6 +528,23 @@ def llm_health_check():
         return probe_local_llm()
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+@app.get("/metrics", include_in_schema=False)
+def metrics(request: Request):
+    if not metrics_enabled():
+        return JSONResponse(status_code=404, content={"detail": "Metrics disabled"})
+
+    client_host = request.client.host if request.client else None
+    if not metrics_allow_remote() and not is_loopback_client(client_host):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Metrics restricted to loopback"},
+        )
+
+    return Response(
+        content=metrics_registry.render_prometheus(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 @app.post("/api/v1/spaces")
 def create_space(
