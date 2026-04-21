@@ -27,6 +27,8 @@ let currentNotes = [];
 let currentStudioOutputs = [];
 let lastSources = [];
 let currentViewerKey = null;
+let highlightedNoteId = null;
+let shouldScrollHighlightedNote = false;
 let highlightTimer = null;
 let toastTimer = null;
 let pageRetryState = null;
@@ -73,6 +75,10 @@ const uploadInput = document.getElementById('upload-input');
 const uploadLabel = document.getElementById('upload-label');
 const prepareHint = document.getElementById('prepare-hint');
 const prepareEmptyState = document.getElementById('prepare-empty-state');
+const prepareBlocker = document.getElementById('prepare-blocker');
+const prepareBlockerTitle = document.getElementById('prepare-blocker-title');
+const prepareBlockerText = document.getElementById('prepare-blocker-text');
+const prepareBlockerAction = document.getElementById('prepare-blocker-action');
 const sourceList = document.getElementById('source-list');
 const notebookMeta = document.getElementById('notebook-meta');
 const sourceMeta = document.getElementById('source-meta');
@@ -200,6 +206,9 @@ function bindEvents() {
         }
     });
     sendBtn.addEventListener('click', submitQuery);
+    prepareBlockerAction.addEventListener('click', async () => {
+        await refreshPlatformHealth({ reloadWorkspace: true, silent: false });
+    });
     qaBlockerAction.addEventListener('click', async () => {
         await refreshPlatformHealth({ reloadWorkspace: true, silent: false });
     });
@@ -411,10 +420,14 @@ async function startDemo() {
         await Promise.all([loadObsidianStatus(), loadNotebooks()]);
         if (demoState.notebook?.id) {
             notebookSelect.value = demoState.notebook.id;
-            await selectNotebook(demoState.notebook.id);
+            await selectNotebook(demoState.notebook.id, {
+                preferredSourceId: demoState.source?.id || null,
+            });
         }
         renderDemoState();
-        switchStep('qa');
+        if (currentSourceId && hasReadySources()) {
+            switchStep('qa');
+        }
         showToast('立项 Demo 已就绪：可直接点击推荐问题。');
     } catch (error) {
         showToast(`准备立项 Demo 失败：${error.message}`, 'error');
@@ -605,6 +618,17 @@ function updateQaBlocker() {
     qaBlocker.hidden = true;
 }
 
+function updatePrepareBlocker() {
+    if (platformState.backend.available) {
+        prepareBlocker.hidden = true;
+        return;
+    }
+
+    prepareBlocker.hidden = false;
+    prepareBlockerTitle.textContent = '后端未连接';
+    prepareBlockerText.textContent = platformState.backend.reason || '本地 API 服务未启动，当前无法选择 Notebook、上传 PDF 或进入 Demo。';
+}
+
 async function refreshPlatformHealth({ reloadWorkspace = false, silent = false } = {}) {
     const backendResult = await fetchJsonAllowError('/api/v1/health');
     if (!backendResult.ok) {
@@ -781,6 +805,7 @@ function syncControls() {
     if (!hasNotebook) {
         resetPdfViewer('等待载入资料', '选择一份已就绪资料后，这里会显示证据页。');
     }
+    updatePrepareBlocker();
     updateQaBlocker();
     updateQaMenuVisibility();
 }
@@ -793,6 +818,8 @@ async function loadObsidianStatus() {
         obsidianState = { available: false };
     }
     updateVaultState();
+    renderNotes(currentNotes);
+    renderStudioOutputs(currentStudioOutputs);
 }
 
 function openVault() {
@@ -890,7 +917,7 @@ async function createNotebook() {
     }
 }
 
-async function selectNotebook(notebookId) {
+async function selectNotebook(notebookId, options = {}) {
     currentNotebookId = notebookId;
     const notebook = cachedNotebooks.find((item) => item.id === notebookId);
     currentNotebookName = notebook?.name || notebookId;
@@ -900,11 +927,13 @@ async function selectNotebook(notebookId) {
     totalPages = 0;
     window.currentCitations = [];
     window.currentEvidence = [];
+    highlightedNoteId = null;
+    shouldScrollHighlightedNote = false;
     clearHighlight();
     renderViewer(null);
 
     await Promise.all([
-        loadSources(notebookId),
+        loadSources(notebookId, { preferredSourceId: options.preferredSourceId || null }),
         loadChatHistory(notebookId),
         loadNotes(notebookId),
         loadStudioOutputs(notebookId),
@@ -929,6 +958,8 @@ function resetNotebookContext() {
     currentNotes = [];
     currentStudioOutputs = [];
     currentViewerKey = null;
+    highlightedNoteId = null;
+    shouldScrollHighlightedNote = false;
     window.currentEvidence = [];
     localStorage.removeItem(STORAGE_KEYS.lastNotebook);
     clearChatUI(true);
@@ -957,7 +988,7 @@ function hasReadySources() {
     return lastSources.some(isReadySource);
 }
 
-async function loadSources(notebookId) {
+async function loadSources(notebookId, options = {}) {
     if (!notebookId) {
         return;
     }
@@ -973,9 +1004,11 @@ async function loadSources(notebookId) {
             return;
         }
 
+        const preferredSourceId = options.preferredSourceId || null;
         const preferredSource =
-            lastSources.find(isReadySource) ||
+            lastSources.find((item) => item.id === preferredSourceId) ||
             lastSources.find((item) => item.id === currentSourceId) ||
+            lastSources.find(isReadySource) ||
             lastSources[0];
 
         if (preferredSource) {
@@ -1446,12 +1479,22 @@ function renderNotes(notes) {
 
     if (!notes.length) {
         notesList.innerHTML = '<p class="field-hint">还没有笔记。先去 Step 2 生成回答并保存，再回来导出。</p>';
+        if (!notes.some((note) => note.id === highlightedNoteId)) {
+            highlightedNoteId = null;
+            shouldScrollHighlightedNote = false;
+        }
         return;
     }
 
+    const obsidianUnavailableReason = getObsidianUnavailableReason();
+    let highlightedNode = null;
+
     for (const note of [...notes].reverse()) {
+        const exportDisabled = !obsidianState.available;
+        const isHighlighted = note.id === highlightedNoteId;
         const node = document.createElement('div');
-        node.className = 'note-item';
+        node.className = `note-item${isHighlighted ? ' active' : ''}`;
+        node.dataset.noteId = note.id;
         node.innerHTML = `
             <div>
                 <div class="note-title">${escapeHtml(note.title)}</div>
@@ -1459,7 +1502,7 @@ function renderNotes(notes) {
             </div>
             <div class="note-actions">
                 <button class="note-action-btn" type="button">查看</button>
-                <button class="note-action-btn" type="button">导出到 Obsidian</button>
+                <button class="note-action-btn" type="button"${exportDisabled ? ' disabled' : ''}>导出到 Obsidian</button>
                 <details class="note-overflow">
                     <summary class="note-action-btn">更多</summary>
                     <div class="menu-panel">
@@ -1467,6 +1510,7 @@ function renderNotes(notes) {
                     </div>
                 </details>
             </div>
+            ${exportDisabled ? `<div class="field-hint note-inline-hint">${escapeHtml(obsidianUnavailableReason)}</div>` : ''}
         `;
 
         const [viewBtn, exportBtn] = node.querySelectorAll('.note-action-btn');
@@ -1476,15 +1520,33 @@ function renderNotes(notes) {
         viewBtn.addEventListener('click', () => {
             void viewNote(note.id);
         });
-        exportBtn.addEventListener('click', () => {
-            void exportNoteToObsidian(note.id);
-        });
+        if (!exportDisabled) {
+            exportBtn.addEventListener('click', () => {
+                void exportNoteToObsidian(note.id);
+            });
+        }
         deleteBtn.addEventListener('click', async () => {
             overflow.open = false;
             await deleteNote(note.id);
         });
 
+        if (isHighlighted) {
+            highlightedNode = node;
+        }
         notesList.appendChild(node);
+    }
+
+    if (!notes.some((note) => note.id === highlightedNoteId)) {
+        highlightedNoteId = null;
+        shouldScrollHighlightedNote = false;
+        return;
+    }
+
+    if (highlightedNode && shouldScrollHighlightedNote) {
+        window.requestAnimationFrame(() => {
+            highlightedNode.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+        shouldScrollHighlightedNote = false;
     }
 }
 
@@ -1494,6 +1556,9 @@ async function viewNote(noteId) {
     }
     try {
         const note = await apiJson(`/api/v1/notebooks/${currentNotebookId}/notes/${noteId}`);
+        highlightedNoteId = note.id;
+        shouldScrollHighlightedNote = false;
+        renderNotes(currentNotes);
         renderViewer({
             key: `note:${note.id}`,
             title: note.title,
@@ -1514,6 +1579,10 @@ async function deleteNote(noteId) {
         await apiJson(`/api/v1/notebooks/${currentNotebookId}/notes/${noteId}`, {
             method: 'DELETE',
         });
+        if (highlightedNoteId === noteId) {
+            highlightedNoteId = null;
+            shouldScrollHighlightedNote = false;
+        }
         if (currentViewerKey === `note:${noteId}`) {
             renderViewer(null);
         }
@@ -1555,6 +1624,8 @@ async function saveNote(content, citations, button) {
             body: JSON.stringify({ content, citations }),
         });
         button.textContent = '已保存';
+        highlightedNoteId = note.id;
+        shouldScrollHighlightedNote = true;
         await loadNotes(currentNotebookId);
         renderViewer({
             key: `note:${note.id}`,
@@ -1609,7 +1680,10 @@ function renderStudioOutputs(outputs) {
         return;
     }
 
+    const obsidianUnavailableReason = getObsidianUnavailableReason();
+
     for (const output of [...outputs].reverse()) {
+        const exportDisabled = !obsidianState.available;
         const node = document.createElement('div');
         node.className = 'studio-item';
         node.innerHTML = `
@@ -1620,9 +1694,10 @@ function renderStudioOutputs(outputs) {
             <div class="studio-actions">
                 <button class="studio-action-btn" type="button">查看</button>
                 <button class="studio-action-btn" type="button">保存为笔记</button>
-                <button class="studio-action-btn" type="button">导出</button>
+                <button class="studio-action-btn" type="button"${exportDisabled ? ' disabled' : ''}>导出</button>
                 <button class="studio-action-btn" type="button">删除</button>
             </div>
+            ${exportDisabled ? `<div class="field-hint note-inline-hint">${escapeHtml(obsidianUnavailableReason)}</div>` : ''}
         `;
 
         const actionButtons = node.querySelectorAll('.studio-action-btn');
@@ -1632,9 +1707,11 @@ function renderStudioOutputs(outputs) {
         actionButtons[1].addEventListener('click', () => {
             void saveStudioAsNote(output.id);
         });
-        actionButtons[2].addEventListener('click', () => {
-            void exportStudioToObsidian(output.id);
-        });
+        if (!exportDisabled) {
+            actionButtons[2].addEventListener('click', () => {
+                void exportStudioToObsidian(output.id);
+            });
+        }
         actionButtons[3].addEventListener('click', () => {
             void deleteStudioOutput(output.id);
         });
@@ -1705,6 +1782,8 @@ async function saveStudioAsNote(outputId) {
             `/api/v1/notebooks/${currentNotebookId}/studio/${outputId}/save-as-note`,
             { method: 'POST' }
         );
+        highlightedNoteId = note.id;
+        shouldScrollHighlightedNote = true;
         await loadNotes(currentNotebookId);
         renderViewer({
             key: `note:${note.id}`,
@@ -1712,6 +1791,7 @@ async function saveStudioAsNote(outputId) {
             meta: formatDateTime(note.created_at),
             body: formatAssistantResponse(note.content, note.citations || []),
         });
+        switchStep('export');
         showToast('已保存为笔记。');
     } catch (error) {
         showToast(`保存结构化输出失败：${error.message}`, 'error');
@@ -1934,6 +2014,12 @@ function formatDateTime(value) {
     } catch (_) {
         return value;
     }
+}
+
+function getObsidianUnavailableReason() {
+    return obsidianState.available
+        ? ''
+        : '未检测到本地 Obsidian vault，当前只能查看内容，暂不能导出。';
 }
 
 function escapeHtml(value) {

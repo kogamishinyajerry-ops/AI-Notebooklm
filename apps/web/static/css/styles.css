@@ -603,6 +603,10 @@ summary {
     background: rgba(177, 122, 45, 0.08);
 }
 
+.inline-status-banner {
+    margin: 1rem 0 0;
+}
+
 .status-banner-copy {
     display: grid;
     gap: 0.2rem;
@@ -793,9 +797,19 @@ summary {
     background: var(--bg-panel);
 }
 
+.note-item.active {
+    border-color: rgba(35, 106, 123, 0.28);
+    box-shadow: inset 0 0 0 1px rgba(35, 106, 123, 0.08);
+    background: rgba(35, 106, 123, 0.05);
+}
+
 .note-actions,
 .studio-actions {
     flex-wrap: wrap;
+}
+
+.note-inline-hint {
+    margin-top: -0.1rem;
 }
 
 .note-overflow summary {

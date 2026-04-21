@@ -478,6 +478,28 @@ class TestNotesAPI:
         finally:
             api.get_obsidian_vault = original_get_obsidian_vault
 
+    def test_export_note_to_obsidian_returns_503_without_vault(self, tmp_path):
+        from fastapi.testclient import TestClient
+
+        app, api = _get_app(tmp_path)
+        client = TestClient(app)
+        created = client.post(
+            "/api/v1/notebooks/nb-1/notes",
+            json={"content": "AI said this", "citations": [], "title": "My Note"},
+        ).json()
+
+        original_get_obsidian_vault = api.get_obsidian_vault
+        api.get_obsidian_vault = lambda: None
+
+        try:
+            resp = client.post(
+                f"/api/v1/notebooks/nb-1/notes/{created['id']}/export/obsidian"
+            )
+            assert resp.status_code == 503
+            assert resp.json()["detail"] == "Local Obsidian vault not available"
+        finally:
+            api.get_obsidian_vault = original_get_obsidian_vault
+
 
 class TestChatHistoryAPI:
     def test_get_empty_history(self, tmp_path):
