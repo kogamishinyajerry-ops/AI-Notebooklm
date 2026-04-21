@@ -382,7 +382,7 @@ def _get_app(tmp_path):
         import apps.api.main as api
 
     # Notebook mock
-    mock_nb = MagicMock(); mock_nb.id = "nb-1"
+    mock_nb = MagicMock(); mock_nb.id = "nb-1"; mock_nb.name = "Notebook One"
     mock_nb_store = MagicMock()
     mock_nb_store.get.side_effect = lambda nid: mock_nb if nid == "nb-1" else None
 
@@ -448,6 +448,35 @@ class TestNotesAPI:
         app, _ = _get_app(tmp_path)
         client = TestClient(app)
         assert client.get("/api/v1/notebooks/ghost/notes").status_code == 404
+
+    def test_export_note_to_obsidian(self, tmp_path):
+        from fastapi.testclient import TestClient
+        from pathlib import Path
+        from core.integrations.obsidian_export import ObsidianVault
+
+        app, api = _get_app(tmp_path)
+        client = TestClient(app)
+        created = client.post(
+            "/api/v1/notebooks/nb-1/notes",
+            json={"content": "AI said this", "citations": [], "title": "My Note"},
+        ).json()
+
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+        original_get_obsidian_vault = api.get_obsidian_vault
+        api.get_obsidian_vault = lambda: ObsidianVault(name="vault", path=vault_path)
+
+        try:
+            resp = client.post(
+                f"/api/v1/notebooks/nb-1/notes/{created['id']}/export/obsidian"
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            exported_path = Path(data["file_path"])
+            assert exported_path.exists()
+            assert exported_path.read_text(encoding="utf-8").find("AI said this") >= 0
+        finally:
+            api.get_obsidian_vault = original_get_obsidian_vault
 
 
 class TestChatHistoryAPI:
