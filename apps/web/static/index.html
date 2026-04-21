@@ -1,136 +1,315 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COMAC Intelligent NotebookLM</title>
+    <title>COMAC 智能 NotebookLM</title>
+    <link
+        rel="icon"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2730'/%3E%3Cpath d='M18 16h19l9 9v23H18z' fill='%23f4efe6'/%3E%3Cpath d='M37 16v10h10' fill='none' stroke='%239b7c49' stroke-width='3'/%3E%3Cpath d='M24 34h16M24 42h14' stroke='%239b7c49' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E"
+    >
     <link rel="stylesheet" href="/static/css/styles.css">
-    <!-- PDF.js via cdnjs — no external runtime calls needed after load (C1) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
-    <div class="app-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="logo">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                AI NotebookLM
-            </div>
-
-            <!-- Notebook selector -->
-            <div class="sidebar-section">
-                <p class="sidebar-label">Notebook</p>
-                <div class="notebook-selector-row">
-                    <select id="notebook-select" class="notebook-select">
-                        <option value="">— select —</option>
-                    </select>
-                    <button id="new-notebook-btn" class="icon-btn" title="New notebook">＋</button>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand-block">
+                <div class="brand-mark">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <path d="M8 13h8"/>
+                        <path d="M8 17h6"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="brand-eyebrow">COMAC Intelligent NotebookLM</p>
+                    <h1 class="brand-title">三步工作台</h1>
                 </div>
             </div>
 
-            <!-- Source list -->
-            <div class="sidebar-section source-section">
-                <p class="sidebar-label">Sources</p>
-                <div id="source-list" class="source-list">
-                    <p class="empty-hint">No sources yet</p>
-                </div>
-                <label id="upload-label" class="upload-btn">
-                    ＋ Upload PDF
-                    <input type="file" id="upload-input" accept="application/pdf" style="display:none">
-                </label>
+            <div class="topbar-actions">
+                <button id="demo-start-btn" class="primary-btn demo-start-btn" type="button" hidden>进入立项 Demo</button>
+                <span id="notebook-chip" class="status-chip muted">Notebook：未选择</span>
+                <button id="settings-toggle" class="ghost-btn" type="button">工作区设置</button>
             </div>
-        </aside>
+        </header>
 
-        <!-- Main Content -->
-        <main class="main-content">
+        <nav class="step-nav" aria-label="主流程导航">
+            <button id="step-prepare-btn" class="step-btn active" type="button" data-step="prepare">
+                <span class="step-index">1</span>
+                <span>准备资料</span>
+            </button>
+            <button id="step-qa-btn" class="step-btn" type="button" data-step="qa">
+                <span class="step-index">2</span>
+                <span>提问验证</span>
+            </button>
+            <button id="step-export-btn" class="step-btn" type="button" data-step="export">
+                <span class="step-index">3</span>
+                <span>沉淀导出</span>
+            </button>
+        </nav>
 
-            <!-- Left: PDF Viewer -->
-            <section class="pdf-pane">
-                <div class="pdf-pane-header">
-                    <span id="pdf-title" class="pdf-title">Document Preview</span>
-                    <div class="page-nav">
-                        <button id="prev-page" class="nav-btn" disabled>&#8249;</button>
-                        <span id="page-indicator" class="page-indicator">— / —</span>
-                        <button id="next-page" class="nav-btn" disabled>&#8250;</button>
-                    </div>
-                </div>
-                <div class="pdf-viewport" id="pdf-viewport">
-                    <div class="pdf-placeholder" id="pdf-placeholder">
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                        <p>Select a source to preview</p>
-                    </div>
-                    <div class="canvas-wrapper" id="canvas-wrapper" style="display:none">
-                        <canvas id="pdf-canvas"></canvas>
-                        <div id="highlight-overlay" class="highlight-overlay"></div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Middle: Chat Interface -->
-            <section class="chat-pane">
-                <div class="chat-pane-header">AI Assistant</div>
-                <div class="chat-history" id="chat-history">
-                    <div class="message system">
-                        Hello. I'm your Intelligent Engineering Assistant. Select a notebook and upload documents, then ask questions.
-                    </div>
-                </div>
-                <div class="chat-input-area">
-                    <div class="input-row">
-                        <input type="text" id="query-input" placeholder="Ask about your documents…" autocomplete="off">
-                        <button id="send-btn" class="send-btn">&#9654;</button>
-                    </div>
-                    <div class="chat-toolbar">
-                        <button id="clear-history-btn" class="toolbar-btn" title="Clear chat history">&#128465; Clear history</button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Right: Notes + Studio Panel -->
-            <aside class="notes-pane" id="notes-pane">
-                <!-- Tab header -->
-                <div class="pane-tabs">
-                    <button class="pane-tab active" id="tab-notes" onclick="switchPane('notes')">&#128211; Notes</button>
-                    <button class="pane-tab" id="tab-studio" onclick="switchPane('studio')">&#9881; Studio</button>
-                    <button class="pane-tab" id="tab-graph" onclick="switchPane('graph')">&#128506; 图谱</button>
-                    <button id="refresh-notes-btn" class="icon-btn" title="Refresh" style="margin:0.3rem 0.4rem 0.3rem auto;flex-shrink:0;">&#8635;</button>
-                </div>
-
-                <!-- Notes panel -->
-                <div class="pane-panel visible" id="panel-notes">
-                    <div class="notes-list" id="notes-list">
-                        <p class="empty-hint">No saved notes</p>
-                    </div>
-                </div>
-
-                <!-- Studio panel -->
-                <div class="pane-panel" id="panel-studio">
-                    <div class="studio-controls">
-                        <div class="studio-type-grid">
-                            <button class="studio-type-btn active" data-type="summary"      onclick="selectStudioType(this)">&#128196; 执行摘要</button>
-                            <button class="studio-type-btn"        data-type="faq"          onclick="selectStudioType(this)">&#10067; FAQ</button>
-                            <button class="studio-type-btn"        data-type="briefing"     onclick="selectStudioType(this)">&#128203; 技术简报</button>
-                            <button class="studio-type-btn"        data-type="glossary"     onclick="selectStudioType(this)">&#128218; 术语表</button>
-                            <button class="studio-type-btn"        data-type="action_items" onclick="selectStudioType(this)" style="grid-column:span 2;">&#9989; 行动项</button>
+        <main class="step-shell">
+            <section id="step-prepare" class="step-panel visible">
+                <div class="panel-card control-card">
+                    <div class="panel-header">
+                        <div>
+                            <p class="panel-eyebrow">Step 1</p>
+                            <h2 class="panel-title">准备资料</h2>
                         </div>
-                        <button class="generate-btn" id="generate-btn" onclick="generateStudioOutput()">&#9889; 生成</button>
+                        <span id="notebook-meta" class="panel-meta">未选择 Notebook</span>
                     </div>
-                    <div class="studio-list" id="studio-list">
-                        <p class="empty-hint">No generated outputs</p>
+
+                    <div class="control-grid">
+                        <div class="field-block">
+                            <label class="field-label" for="notebook-select">选择 Notebook</label>
+                            <select id="notebook-select" class="text-field">
+                                <option value="">请选择</option>
+                            </select>
+                        </div>
+
+                        <div class="field-block">
+                            <label class="field-label" for="new-notebook-name">新建 Notebook</label>
+                            <div class="inline-actions">
+                                <input
+                                    type="text"
+                                    id="new-notebook-name"
+                                    class="text-field"
+                                    placeholder="输入 Notebook 名称"
+                                    autocomplete="off"
+                                >
+                                <button id="create-notebook-btn" class="primary-btn" type="button">新建</button>
+                            </div>
+                        </div>
+
+                        <div class="field-block">
+                            <label class="field-label">上传 PDF</label>
+                            <label id="upload-label" class="upload-btn">
+                                上传 PDF
+                                <input type="file" id="upload-input" accept="application/pdf" hidden>
+                            </label>
+                            <p id="prepare-hint" class="field-hint">先选择或新建 Notebook，再上传资料。</p>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Graph / Mind Map panel -->
-                <div class="pane-panel" id="panel-graph">
-                    <div class="graph-controls">
-                        <button class="generate-btn" id="generate-graph-btn" onclick="generateGraph()">&#9889; 生成知识图谱</button>
+                <div class="panel-card source-card">
+                    <div class="panel-header">
+                        <div>
+                            <p class="panel-eyebrow">资料状态</p>
+                            <h2 class="panel-title">已接入文档</h2>
+                        </div>
+                        <span id="source-meta" class="panel-meta">0 份资料</span>
                     </div>
-                    <div id="graph-status" class="empty-hint">选择 Notebook 后点击生成</div>
-                    <svg id="mindmap-svg" class="mindmap-svg" xmlns="http://www.w3.org/2000/svg"></svg>
-                </div>
-            </aside>
 
+                    <div id="prepare-empty-state" class="empty-state">
+                        <p class="empty-title">还没有可检索资料</p>
+                        <p class="empty-copy">上传 PDF 后，系统会自动进入提问验证流程。</p>
+                    </div>
+
+                    <div id="source-list" class="source-list"></div>
+                </div>
+            </section>
+
+            <section id="step-qa" class="step-panel">
+                <div class="panel-card evidence-card">
+                    <div class="panel-header">
+                        <div>
+                            <p class="panel-eyebrow">Step 2</p>
+                            <h2 class="panel-title">证据预览</h2>
+                        </div>
+                        <div id="page-nav" class="page-nav">
+                            <button id="prev-page" class="icon-btn" type="button" aria-label="上一页" disabled>&#8249;</button>
+                            <span id="page-indicator" class="page-indicator">— / —</span>
+                            <button id="next-page" class="icon-btn" type="button" aria-label="下一页" disabled>&#8250;</button>
+                        </div>
+                    </div>
+
+                    <div class="viewer-caption">
+                        <span id="pdf-title" class="viewer-title">等待载入资料</span>
+                    </div>
+
+                    <div class="pdf-viewport" id="pdf-viewport">
+                        <div class="pdf-placeholder" id="pdf-placeholder">
+                            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <path d="M8 13h8"/>
+                                <path d="M8 17h6"/>
+                            </svg>
+                            <p>选择一份已就绪资料后，这里会显示证据页。</p>
+                            <button id="retry-page-btn" class="ghost-btn" type="button" hidden>重试预览</button>
+                        </div>
+                        <div class="canvas-wrapper" id="canvas-wrapper" hidden>
+                            <canvas id="pdf-canvas"></canvas>
+                            <div id="highlight-overlay" class="highlight-overlay"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-card qa-card">
+                    <div class="panel-header">
+                        <div>
+                            <p class="panel-eyebrow">问答区</p>
+                            <h2 class="panel-title">提问验证</h2>
+                        </div>
+                        <details class="menu-shell" id="qa-menu">
+                            <summary class="ghost-btn">更多操作</summary>
+                            <div class="menu-panel">
+                                <button id="clear-history-btn" class="menu-item danger" type="button">清空历史</button>
+                            </div>
+                        </details>
+                    </div>
+
+                    <div id="workspace-status" class="workspace-status">
+                        <div id="workspace-hint" class="status-text">上传资料后，在这里提出问题并查看带出处的回答。</div>
+                    </div>
+
+                    <div id="demo-question-strip" class="demo-question-strip" hidden>
+                        <div>
+                            <p class="panel-eyebrow">Demo Questions</p>
+                            <div class="demo-question-title">推荐问题：点击即可展示证据链路</div>
+                        </div>
+                        <div id="demo-question-list" class="demo-question-list"></div>
+                    </div>
+
+                    <div id="qa-blocker" class="status-banner" hidden>
+                        <div class="status-banner-copy">
+                            <div id="qa-blocker-title" class="status-banner-title">当前无法提问</div>
+                            <div id="qa-blocker-text" class="field-hint">请先完成连接检查。</div>
+                        </div>
+                        <button id="qa-blocker-action" class="ghost-btn" type="button">重新检查</button>
+                    </div>
+
+                    <div id="chat-history" class="chat-history"></div>
+
+                    <div class="chat-input-area">
+                        <div class="input-row">
+                            <input type="text" id="query-input" class="text-field" placeholder="输入你的问题" autocomplete="off">
+                            <button id="send-btn" class="primary-btn send-btn" type="button">发送</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="step-export" class="step-panel">
+                <div class="panel-card notes-card">
+                    <div class="panel-header">
+                        <div>
+                            <p class="panel-eyebrow">Step 3</p>
+                            <h2 class="panel-title">沉淀导出</h2>
+                        </div>
+                        <span id="vault-status-pill" class="status-chip muted">Obsidian 未检测</span>
+                    </div>
+
+                    <p class="section-copy">将有价值的回答保存为笔记，再导出到 Obsidian。</p>
+
+                    <div id="notes-list" class="notes-list"></div>
+
+                    <div id="note-viewer" class="note-viewer" hidden>
+                        <div class="note-viewer-header">
+                            <h3 id="note-viewer-title" class="note-viewer-title">笔记详情</h3>
+                            <span id="note-viewer-meta" class="panel-meta"></span>
+                        </div>
+                        <div id="note-viewer-body" class="note-viewer-body"></div>
+                    </div>
+                </div>
+
+                <div class="panel-card advanced-card">
+                    <button id="advanced-toggle" class="ghost-btn advanced-toggle" type="button">高级能力</button>
+                    <div id="advanced-content" class="advanced-content" hidden>
+                        <div class="advanced-block">
+                            <div class="advanced-header">
+                                <div>
+                                    <p class="panel-eyebrow">Studio</p>
+                                    <h3 class="advanced-title">结构化输出</h3>
+                                </div>
+                            </div>
+                            <div class="advanced-controls">
+                                <select id="studio-type-select" class="text-field">
+                                    <option value="summary">执行摘要</option>
+                                    <option value="faq">FAQ</option>
+                                    <option value="briefing">技术简报</option>
+                                    <option value="glossary">术语表</option>
+                                    <option value="action_items">行动项</option>
+                                </select>
+                                <button id="generate-btn" class="primary-btn" type="button">生成</button>
+                            </div>
+                            <div id="studio-list" class="studio-list"></div>
+                        </div>
+
+                        <div class="advanced-block">
+                            <div class="advanced-header">
+                                <div>
+                                    <p class="panel-eyebrow">Graph</p>
+                                    <h3 class="advanced-title">知识图谱</h3>
+                                </div>
+                                <button id="generate-graph-btn" class="ghost-btn" type="button">生成知识图谱</button>
+                            </div>
+                            <div id="graph-status" class="field-hint">需要至少一份 READY 资料后才可生成。</div>
+                            <svg id="mindmap-svg" class="mindmap-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
+
+    <div id="settings-backdrop" class="settings-backdrop" hidden></div>
+    <aside id="settings-drawer" class="settings-drawer" hidden>
+        <div class="drawer-header">
+            <div>
+                <p class="panel-eyebrow">Workspace</p>
+                <h2 class="panel-title">工作区设置</h2>
+            </div>
+            <button id="settings-close-btn" class="icon-btn" type="button" aria-label="关闭设置">&times;</button>
+        </div>
+
+        <section class="drawer-section">
+            <div class="drawer-row">
+                <span class="field-label">认证状态</span>
+                <span id="auth-chip" class="status-chip muted">开放模式</span>
+            </div>
+            <label class="field-label" for="api-key-input">API Key</label>
+            <div class="inline-actions">
+                <input
+                    type="password"
+                    id="api-key-input"
+                    class="text-field"
+                    placeholder="仅在启用认证时填写"
+                    autocomplete="off"
+                >
+                <button id="save-api-key-btn" class="primary-btn" type="button">保存</button>
+            </div>
+            <p id="auth-status" class="field-hint">当前可直接体验；启用认证后可在此附加 API Key。</p>
+        </section>
+
+        <section class="drawer-section">
+            <div class="drawer-row">
+                <span class="field-label">Obsidian Vault</span>
+                <span id="vault-status" class="panel-meta">检测中</span>
+            </div>
+            <p id="vault-meta" class="field-hint">检测到本地 vault 后，导出会直接落盘并生成 deep-link。</p>
+            <button id="open-vault-btn" class="ghost-btn full-width" type="button">打开 Vault</button>
+        </section>
+
+        <section class="drawer-section">
+            <div class="drawer-row">
+                <span class="field-label">后端连接</span>
+                <span id="backend-chip" class="status-chip muted">检测中</span>
+            </div>
+            <p id="backend-meta" class="field-hint">正在检查 API 服务。</p>
+
+            <div class="drawer-row">
+                <span class="field-label">推理模式</span>
+                <span id="llm-chip" class="status-chip muted">检测中</span>
+            </div>
+            <p id="llm-meta" class="field-hint">正在检查推理服务。</p>
+        </section>
+    </aside>
+
+    <div id="toast" class="toast" aria-live="polite"></div>
 
     <script src="/static/js/app.js"></script>
 </body>

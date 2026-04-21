@@ -150,6 +150,8 @@ def test_llm_health_endpoint_returns_probe_payload():
     api_main.probe_local_llm = MagicMock(
         return_value={
             "status": "ok",
+            "provider": "local",
+            "available": True,
             "reachable": True,
             "configured_url": "http://localhost:8001/v1",
             "models": ["qwen-2.5"],
@@ -162,16 +164,78 @@ def test_llm_health_endpoint_returns_probe_payload():
     assert resp.status_code == 200
     assert resp.json()["reachable"] is True
     assert resp.json()["configured_url"] == "http://localhost:8001/v1"
+    assert resp.json()["provider"] == "local"
 
 
-def test_llm_health_endpoint_returns_503_for_misconfiguration():
+def test_llm_health_endpoint_returns_structured_503_for_misconfiguration():
     api_main = _import_api()
+    api_main.get_llm_settings_snapshot = MagicMock(
+        return_value={
+            "provider": "minimax",
+            "configured_url": "https://api.minimax.io/v1",
+            "model_name": "MiniMax-M2.7-highspeed",
+            "is_external_validation": True,
+        }
+    )
     api_main.probe_local_llm = MagicMock(
-        side_effect=api_main.LLMConfigurationError("VLLM_URL must point to a localhost/private-network inference service unless ALLOW_REMOTE_VLLM=1 is explicitly set.")
+        side_effect=api_main.LLMConfigurationError("MINIMAX_API_KEY is required when LLM_PROVIDER=minimax.")
     )
 
     client = TestClient(api_main.app, raise_server_exceptions=False)
     resp = client.get("/api/v1/llm/health")
 
     assert resp.status_code == 503
-    assert "VLLM_URL" in resp.json()["detail"]
+    payload = resp.json()
+    assert payload["status"] == "misconfigured"
+    assert payload["provider"] == "minimax"
+    assert payload["is_external_validation"] is True
+    assert "MINIMAX_API_KEY" in payload["unavailable_reason"]
+
+
+def test_llm_health_endpoint_returns_200_when_provider_unreachable():
+    api_main = _import_api()
+    api_main.probe_local_llm = MagicMock(
+        return_value={
+            "status": "unreachable",
+            "provider": "local",
+            "available": False,
+            "reachable": False,
+            "configured_url": "http://localhost:8001/v1",
+            "unavailable_reason": "connection refused",
+        }
+    )
+
+    client = TestClient(api_main.app)
+    resp = client.get("/api/v1/llm/health")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "unreachable"
+    assert resp.json()["available"] is False
+
+
+def test_llm_health_endpoint_uses_external_timeout_for_minimax():
+    api_main = _import_api()
+    api_main.get_llm_settings_snapshot = MagicMock(
+        return_value={
+            "provider": "minimax",
+            "configured_url": "https://api.minimaxi.com/anthropic",
+            "model_name": "MiniMax-M2.7-highspeed",
+            "is_external_validation": True,
+        }
+    )
+    api_main.probe_local_llm = MagicMock(
+        return_value={
+            "status": "ok",
+            "provider": "minimax",
+            "available": True,
+            "reachable": True,
+            "configured_url": "https://api.minimaxi.com/anthropic",
+        }
+    )
+
+    client = TestClient(api_main.app)
+    resp = client.get("/api/v1/llm/health")
+
+    assert resp.status_code == 200
+    assert resp.json()["provider"] == "minimax"
+    api_main.probe_local_llm.assert_called_once_with(timeout=20.0)

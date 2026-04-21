@@ -2,7 +2,34 @@ from __future__ import annotations
 
 import chromadb
 from chromadb.config import Settings
+import json
 import uuid
+
+
+def _serialize_metadata(metadata: dict) -> dict:
+    """Normalize metadata for Chroma's scalar-only metadata contract."""
+    serialized = dict(metadata)
+    bbox = serialized.get("bbox")
+    if isinstance(bbox, (list, tuple)):
+        serialized["bbox"] = json.dumps(list(bbox))
+    return serialized
+
+
+def _deserialize_metadata(metadata: dict) -> dict:
+    """Restore structured fields exposed by the public retrieval contract."""
+    restored = dict(metadata)
+    bbox = restored.get("bbox")
+    if isinstance(bbox, tuple):
+        restored["bbox"] = list(bbox)
+    elif isinstance(bbox, str):
+        try:
+            parsed = json.loads(bbox)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            restored["bbox"] = parsed
+    return restored
+
 
 class VectorStoreAdapter:
     """
@@ -33,7 +60,7 @@ class VectorStoreAdapter:
         self.collection.add(
             ids=ids,
             embeddings=embeddings,
-            metadatas=metadatas,
+            metadatas=[_serialize_metadata(item) for item in metadatas],
             documents=chunks
         )
         return ids
@@ -65,6 +92,11 @@ class VectorStoreAdapter:
         if where:
             kwargs["where"] = where
         results = self.collection.query(**kwargs)
+        if results.get("metadatas"):
+            results["metadatas"] = [
+                [_deserialize_metadata(item) for item in batch]
+                for batch in results["metadatas"]
+            ]
         return results
 
     def get_by_ids(self, ids: list[str]) -> dict:
@@ -85,7 +117,10 @@ class VectorStoreAdapter:
         result = self.collection.get(ids=ids, include=["documents", "metadatas"])
         return {
             "documents": result.get("documents") or [],
-            "metadatas": result.get("metadatas") or [],
+            "metadatas": [
+                _deserialize_metadata(item)
+                for item in (result.get("metadatas") or [])
+            ],
         }
 
     def get_all(self, where: dict | None = None) -> dict:
@@ -102,5 +137,8 @@ class VectorStoreAdapter:
         return {
             "ids": result.get("ids") or [],
             "documents": result.get("documents") or [],
-            "metadatas": result.get("metadatas") or [],
+            "metadatas": [
+                _deserialize_metadata(item)
+                for item in (result.get("metadatas") or [])
+            ],
         }

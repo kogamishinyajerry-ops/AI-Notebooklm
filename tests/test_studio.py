@@ -212,7 +212,7 @@ def _install_api_stubs():
         fitz.open = MagicMock()
 
     for name in ["core.retrieval.embeddings", "core.retrieval.reranker",
-                 "core.retrieval.vector_store"]:
+                 "core.retrieval.vector_store", "core.retrieval.retriever"]:
         mod = sys.modules.setdefault(name, _stub(name))
         if not hasattr(mod, "EmbeddingManager"):
             mod.EmbeddingManager = MagicMock
@@ -220,6 +220,8 @@ def _install_api_stubs():
             mod.CrossEncoderReranker = MagicMock
         if not hasattr(mod, "VectorStoreAdapter"):
             mod.VectorStoreAdapter = MagicMock
+        if not hasattr(mod, "RetrieverEngine"):
+            mod.RetrieverEngine = MagicMock
 
     if "core.retrieval.retriever" not in sys.modules:
         retr_mod = _stub("core.retrieval.retriever")
@@ -289,17 +291,15 @@ def _get_app(tmp_path):
         sys.modules.pop(name, None)
     sys.modules.pop("core.ingestion.transaction", None)
     _patch_transaction()
+    sys.modules.pop("apps.api.main", None)
 
     from core.storage.studio_store import StudioStore
     from core.storage.note_store import NoteStore
     from core.storage.chat_history_store import ChatHistoryStore
 
-    if "apps.api.main" in sys.modules:
-        api = sys.modules["apps.api.main"]
-    else:
-        import apps.api.main as api
+    import apps.api.main as api
 
-    mock_nb = MagicMock(); mock_nb.id = "nb-1"
+    mock_nb = MagicMock(); mock_nb.id = "nb-1"; mock_nb.name = "Notebook One"
     mock_nb_store = MagicMock()
     mock_nb_store.get.side_effect = lambda nid: mock_nb if nid == "nb-1" else None
 
@@ -372,6 +372,32 @@ class TestStudioAPI:
         app, _ = _get_app(tmp_path)
         client = TestClient(app)
         assert client.delete("/api/v1/notebooks/nb-1/studio/ghost-id").status_code == 404
+
+    def test_export_studio_to_obsidian(self, tmp_path):
+        from fastapi.testclient import TestClient
+        from pathlib import Path
+        from core.integrations.obsidian_export import ObsidianVault
+
+        app, api = _get_app(tmp_path)
+        out = api.studio_store.create("nb-1", "faq", "FAQ content", citations=[])
+        client = TestClient(app)
+
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+        original_get_obsidian_vault = api.get_obsidian_vault
+        api.get_obsidian_vault = lambda: ObsidianVault(name="vault", path=vault_path)
+
+        try:
+            resp = client.post(
+                f"/api/v1/notebooks/nb-1/studio/{out.id}/export/obsidian"
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            exported_path = Path(data["file_path"])
+            assert exported_path.exists()
+            assert exported_path.read_text(encoding="utf-8").find("FAQ content") >= 0
+        finally:
+            api.get_obsidian_vault = original_get_obsidian_vault
 
 
 # ---------------------------------------------------------------------------
