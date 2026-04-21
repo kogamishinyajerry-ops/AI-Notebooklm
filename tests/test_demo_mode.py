@@ -183,6 +183,73 @@ def test_demo_seed_is_idempotent_and_creates_ready_source(monkeypatch, tmp_path)
         assert "FADEC 发出 Deploy Command 的安全联锁有哪些？" in second_payload["questions"]
 
 
+def test_demo_seed_repairs_and_deduplicates_existing_broken_sources(monkeypatch, tmp_path):
+    monkeypatch.setenv("ENABLE_DEMO_MODE", "1")
+    api_main = _import_api_main(monkeypatch)
+
+    with TestClient(api_main.app) as client:
+        _install_test_stores(api_main, tmp_path)
+        api_main.get_llm_settings_snapshot = lambda: {
+            "provider": "minimax",
+            "configured_url": "https://api.minimaxi.com/anthropic",
+            "model_name": "MiniMax-M2.7-highspeed",
+            "is_external_validation": True,
+        }
+        api_main.get_obsidian_vault = lambda: None
+
+        notebook = api_main.notebook_store.create(api_main.DEMO_NOTEBOOK_NAME)
+        broken_a = api_main.source_registry.register(
+            notebook.id,
+            api_main.DEMO_SOURCE_FILENAME,
+            str(tmp_path / "demo-broken-a.pdf"),
+        )
+        api_main.source_registry.update_status(
+            notebook.id,
+            broken_a.id,
+            "failed",
+            page_count=0,
+            chunk_count=0,
+            error_message="broken",
+        )
+        broken_b = api_main.source_registry.register(
+            notebook.id,
+            api_main.DEMO_SOURCE_FILENAME,
+            str(tmp_path / "demo-broken-b.pdf"),
+        )
+        api_main.source_registry.update_status(
+            notebook.id,
+            broken_b.id,
+            "ready",
+            page_count=0,
+            chunk_count=0,
+            error_message="stale",
+        )
+        api_main.notebook_store.update(notebook.id, source_count=2)
+
+        first = client.post("/api/v1/demo/seed")
+        second = client.post("/api/v1/demo/seed")
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+
+        payload = first.json()
+        follow_up = second.json()
+        assert payload["ready"] is True
+        assert payload["source"]["id"] in {broken_a.id, broken_b.id}
+        assert payload["source"]["status"] == "ready"
+        assert payload["source"]["chunk_count"] > 0
+        assert payload["source"]["page_count"] == 5
+        assert follow_up["source"]["id"] == payload["source"]["id"]
+
+        demo_sources = api_main.source_registry.list_by_notebook(notebook.id)
+        assert len(demo_sources) == 1
+        assert demo_sources[0].id == payload["source"]["id"]
+        assert demo_sources[0].chunk_count > 0
+        assert demo_sources[0].page_count == 5
+        assert Path(demo_sources[0].file_path).exists()
+        assert api_main.notebook_store.get(notebook.id).source_count == 1
+
+
 def test_chat_response_includes_evidence_without_changing_citation_gate(monkeypatch, tmp_path):
     monkeypatch.delenv("ENABLE_DEMO_MODE", raising=False)
     api_main = _import_api_main(monkeypatch)

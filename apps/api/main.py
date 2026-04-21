@@ -678,12 +678,88 @@ def _find_demo_notebook():
     return None
 
 
+def _list_demo_sources(notebook_id: str) -> list:
+    return [
+        source
+        for source in source_registry.list_by_notebook(notebook_id)
+        if source.filename == DEMO_SOURCE_FILENAME
+    ]
+
+
+def _demo_source_file_exists(source) -> bool:
+    file_path = str(getattr(source, "file_path", "") or "").strip()
+    return bool(file_path) and Path(file_path).exists()
+
+
+def _demo_source_is_healthy(source) -> bool:
+    status_value = getattr(source.status, "value", source.status)
+    if status_value != "ready":
+        return False
+    try:
+        chunk_count = int(source.chunk_count or 0)
+        page_count = int(source.page_count or 0)
+    except (TypeError, ValueError):
+        return False
+    return chunk_count > 0 and page_count > 0 and _demo_source_file_exists(source)
+
+
+def _delete_demo_source(
+    notebook_id: str,
+    source,
+    *,
+    preserved_paths: Optional[set[str]] = None,
+) -> None:
+    keep_paths = preserved_paths or set()
+    ingestion_service.vector_store.delete(where={"source_id": source.id})
+    file_path = str(getattr(source, "file_path", "") or "").strip()
+    if file_path and file_path not in keep_paths:
+        Path(file_path).unlink(missing_ok=True)
+    source_registry.delete(notebook_id, source.id)
+
+
+def _repair_demo_source(notebook, source):
+    raw_path = str(getattr(source, "file_path", "") or "").strip()
+    demo_path = Path(raw_path) if raw_path else source_registry.spaces_dir / notebook.id / "docs" / DEMO_SOURCE_FILENAME
+    _write_demo_pdf(demo_path)
+    source_registry.update_status(
+        notebook.id,
+        source.id,
+        "processing",
+        page_count=0,
+        chunk_count=0,
+        error_message="",
+    )
+    try:
+        chunk_count, page_count = ingestion_service.process_file(
+            str(demo_path),
+            space_id=notebook.id,
+            source_id=source.id,
+        )
+        if chunk_count <= 0 or page_count <= 0:
+            raise ValueError("Demo ingestion produced no retrievable chunks.")
+        return source_registry.update_status(
+            notebook.id,
+            source.id,
+            "ready",
+            page_count=page_count,
+            chunk_count=chunk_count,
+            error_message="",
+        )
+    except Exception as exc:
+        source_registry.update_status(
+            notebook.id,
+            source.id,
+            "failed",
+            page_count=0,
+            chunk_count=0,
+            error_message=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Demo seed failed: {exc}") from exc
+
+
 def _find_ready_demo_source(notebook_id: str):
-    for source in source_registry.list_by_notebook(notebook_id):
-        if source.filename != DEMO_SOURCE_FILENAME:
-            continue
-        status_value = getattr(source.status, "value", source.status)
-        if status_value == "ready" and (source.chunk_count or 0) > 0:
+    for source in _list_demo_sources(notebook_id):
+        if _demo_source_is_healthy(source):
             return source
     return None
 
@@ -744,37 +820,34 @@ def _ensure_demo_seed() -> dict:
         notebook = notebook_store.create(DEMO_NOTEBOOK_NAME)
         created_notebook = True
 
-    source = _find_ready_demo_source(notebook.id)
+    demo_sources = _list_demo_sources(notebook.id)
+    healthy_sources = [source for source in demo_sources if _demo_source_is_healthy(source)]
+    source = healthy_sources[-1] if healthy_sources else (demo_sources[-1] if demo_sources else None)
+
+    if source is not None:
+        preserved_paths = {str(getattr(source, "file_path", "") or "").strip()} if getattr(source, "file_path", None) else set()
+        for extra_source in demo_sources:
+            if extra_source.id == source.id:
+                continue
+            _delete_demo_source(
+                notebook.id,
+                extra_source,
+                preserved_paths=preserved_paths,
+            )
+
     if source is None:
         demo_path = source_registry.spaces_dir / notebook.id / "docs" / DEMO_SOURCE_FILENAME
         _write_demo_pdf(demo_path)
         source = source_registry.register(notebook.id, DEMO_SOURCE_FILENAME, str(demo_path))
-        source_registry.update_status(notebook.id, source.id, "processing")
-        try:
-            chunk_count, page_count = ingestion_service.process_file(
-                str(demo_path),
-                space_id=notebook.id,
-                source_id=source.id,
-            )
-            if chunk_count <= 0 or page_count <= 0:
-                raise ValueError("Demo ingestion produced no retrievable chunks.")
-            source = source_registry.update_status(
-                notebook.id,
-                source.id,
-                "ready",
-                page_count=page_count,
-                chunk_count=chunk_count,
-            )
-            notebook_store.increment_source_count(notebook.id, 1)
-            created_source = True
-        except Exception as exc:
-            source_registry.update_status(
-                notebook.id,
-                source.id,
-                "failed",
-                error_message=str(exc),
-            )
-            raise HTTPException(status_code=500, detail=f"Demo seed failed: {exc}") from exc
+        created_source = True
+
+    if not _demo_source_is_healthy(source):
+        source = _repair_demo_source(notebook, source)
+
+    notebook_store.update(
+        notebook.id,
+        source_count=len(source_registry.list_by_notebook(notebook.id)),
+    )
 
     payload = _demo_status_payload()
     payload["created_notebook"] = created_notebook

@@ -92,6 +92,14 @@
                             <p id="prepare-hint" class="field-hint">先选择或新建 Notebook，再上传资料。</p>
                         </div>
                     </div>
+
+                    <div id="prepare-blocker" class="status-banner inline-status-banner" hidden>
+                        <div class="status-banner-copy">
+                            <div id="prepare-blocker-title" class="status-banner-title">后端未连接</div>
+                            <div id="prepare-blocker-text" class="field-hint">本地 API 服务未启动，当前无法准备资料。</div>
+                        </div>
+                        <button id="prepare-blocker-action" class="ghost-btn" type="button">重新检查连接</button>
+                    </div>
                 </div>
 
                 <div class="panel-card source-card">
