@@ -85,6 +85,21 @@ Touching retrieval-quality test plumbing risks perturbing the C2 sentinel, which
   - Full suite: **390 passed** (unchanged).
   - C2 retrieval sentinel: **8 passed** (unchanged).
 
+### Regression sentinel follow-up (2026-04-23)
+
+- `tests/test_r2604_isolation_sentinel.py` now re-runs the historical
+  eight-file R-2604 subset in a fresh child process and asserts the collected
+  test count matches the passed count.
+- The sentinel inherits the ambient environment instead of hardcoding a mode,
+  so the same guard is exercised under both the default suite and the
+  `NOTEBOOKLM_SQLITE_POOL_SIZE=4` suite.
+- **Fresh PR #57 evidence:**
+  - Full suite: **426 passed**.
+  - Pool-enabled full suite: **426 passed**.
+  - C2 retrieval sentinel: **8 passed**.
+  - Historical sentinels (five families, run separately): **117 passed**.
+  - Raw historical eight-file subset: **126 passed**.
+
 ---
 
 ## R-2604-02 — V4.2-T3 review provenance wording drift
