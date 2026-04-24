@@ -259,6 +259,7 @@ def test_chat_response_includes_evidence_without_changing_citation_gate(monkeypa
             "text": "FADEC sends Deploy Command only after TR_WOW equals 1 and locks are unlocked.",
             "metadata": {
                 "source": "demo.pdf",
+                "source_id": "src-demo",
                 "page": 4,
                 "bbox": [72.0, 120.0, 420.0, 180.0],
             },
@@ -300,6 +301,7 @@ def test_chat_response_includes_evidence_without_changing_citation_gate(monkeypa
         payload = resp.json()
         assert payload["is_fully_verified"] is True
         assert payload["citations"][0]["source_file"] == "demo.pdf"
+        assert payload["evidence"][0]["source_id"] == "src-demo"
         assert payload["evidence"][0]["source_file"] == "demo.pdf"
         assert payload["evidence"][0]["page_number"] == 4
         assert "FADEC sends Deploy Command" in payload["evidence"][0]["snippet"]

@@ -172,6 +172,11 @@
 
                     <div id="workspace-status" class="workspace-status">
                         <div id="workspace-hint" class="status-text">上传资料后，在这里提出问题并查看带出处的回答。</div>
+                        <div class="workspace-guide-strip" aria-label="Notebook guide">
+                            <span id="guide-source-count" class="guide-pill">0 READY sources</span>
+                            <span id="guide-evidence-status" class="guide-pill">等待证据</span>
+                            <span id="guide-next-action" class="guide-pill">先上传资料</span>
+                        </div>
                     </div>
 
                     <div id="demo-question-strip" class="demo-question-strip" hidden>
@@ -236,6 +241,8 @@
                             </div>
                             <div class="advanced-controls">
                                 <select id="studio-type-select" class="text-field">
+                                    <option value="podcast">Audio Overview</option>
+                                    <option value="infographic">Infographic</option>
                                     <option value="summary">执行摘要</option>
                                     <option value="faq">FAQ</option>
                                     <option value="briefing">技术简报</option>

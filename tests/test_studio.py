@@ -10,6 +10,7 @@ Tests for S-21: Text Studio Outputs
 """
 from __future__ import annotations
 
+import base64
 import sys
 import types
 from pathlib import Path
@@ -101,7 +102,7 @@ class TestStudioOutputType:
     def test_values_contains_all_types(self):
         from core.models.studio_output import StudioOutputType
         vals = StudioOutputType.values()
-        for t in ("summary", "faq", "briefing", "glossary", "action_items"):
+        for t in ("summary", "faq", "briefing", "glossary", "action_items", "podcast", "infographic"):
             assert t in vals
 
     def test_labels_returns_dict(self):
@@ -187,6 +188,173 @@ class TestStudioStore:
         out = store.create("nb-1", "summary", "content", citations=citations)
         fetched = store.get("nb-1", out.id)
         assert fetched.citations == citations
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: media provider clients
+# ---------------------------------------------------------------------------
+
+class _ProviderResponse:
+    def __init__(self, payload, status_code=200, text="", headers=None):
+        self._payload = payload
+        self.status_code = status_code
+        self.text = text
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._payload
+
+
+class TestMiniMaxMediaClient:
+    def test_media_client_prefers_media_specific_api_key(self, monkeypatch):
+        from core.llm import minimax_media_client as media_client
+
+        calls = []
+        monkeypatch.setenv("MINIMAX_API_KEY", "text-key")
+        monkeypatch.setenv("MINIMAX_MEDIA_API_KEY", "media-key")
+        monkeypatch.setenv("MINIMAX_MEDIA_BASE_URL", "https://api.minimaxi.com")
+
+        def fake_post(url, headers, json, timeout):
+            calls.append((url, headers, json, timeout))
+            return _ProviderResponse({
+                "data": {"audio": "00"},
+                "trace_id": "trace-preferred",
+                "base_resp": {"status_code": 0, "status_msg": "success"},
+            })
+
+        monkeypatch.setattr(media_client.requests, "post", fake_post)
+
+        media_client.generate_tts_audio("短句")
+
+        _, headers, _, _ = calls[0]
+        assert headers["Authorization"] == "Bearer media-key"
+
+    def test_media_client_falls_back_to_text_api_key(self, monkeypatch):
+        from core.llm import minimax_media_client as media_client
+
+        calls = []
+        monkeypatch.setenv("MINIMAX_API_KEY", "text-key")
+        monkeypatch.delenv("MINIMAX_MEDIA_API_KEY", raising=False)
+        monkeypatch.setenv("MINIMAX_MEDIA_BASE_URL", "https://api.minimaxi.com")
+
+        def fake_post(url, headers, json, timeout):
+            calls.append((url, headers, json, timeout))
+            return _ProviderResponse({
+                "data": {"audio": "00"},
+                "trace_id": "trace-fallback",
+                "base_resp": {"status_code": 0, "status_msg": "success"},
+            })
+
+        monkeypatch.setattr(media_client.requests, "post", fake_post)
+
+        media_client.generate_tts_audio("短句")
+
+        _, headers, _, _ = calls[0]
+        assert headers["Authorization"] == "Bearer text-key"
+
+    def test_tts_request_payload_and_hex_decode(self, monkeypatch):
+        from core.llm import minimax_media_client as media_client
+
+        calls = []
+        monkeypatch.setenv("MINIMAX_MEDIA_API_KEY", "test-key")
+        monkeypatch.setenv("MINIMAX_MEDIA_BASE_URL", "https://api.minimaxi.com")
+        monkeypatch.setenv("MINIMAX_TTS_MODEL", "speech-test")
+        monkeypatch.setenv("MINIMAX_TTS_VOICE_ID", "voice-test")
+
+        def fake_post(url, headers, json, timeout):
+            calls.append((url, headers, json, timeout))
+            return _ProviderResponse({
+                "data": {"audio": "000102ff"},
+                "extra_info": {"audio_format": "mp3"},
+                "trace_id": "trace-1",
+                "base_resp": {"status_code": 0, "status_msg": "success"},
+            })
+
+        monkeypatch.setattr(media_client.requests, "post", fake_post)
+
+        result = media_client.generate_tts_audio("测试音频")
+
+        assert result.data == bytes([0, 1, 2, 255])
+        assert result.media_type == "audio/mpeg"
+        assert result.file_extension == "mp3"
+        url, headers, payload, _timeout = calls[0]
+        assert url == "https://api.minimaxi.com/v1/t2a_v2"
+        assert headers["Authorization"] == "Bearer test-key"
+        assert payload["model"] == "speech-test"
+        assert payload["output_format"] == "hex"
+        assert payload["voice_setting"]["voice_id"] == "voice-test"
+
+    def test_image_request_payload_and_base64_decode(self, monkeypatch):
+        from core.llm import minimax_media_client as media_client
+
+        calls = []
+        image_bytes = b"jpeg-bytes"
+        monkeypatch.setenv("MINIMAX_MEDIA_API_KEY", "test-key")
+        monkeypatch.setenv("MINIMAX_MEDIA_BASE_URL", "https://api.minimaxi.com")
+        monkeypatch.setenv("MINIMAX_IMAGE_MODEL", "image-test")
+        monkeypatch.setenv("MINIMAX_IMAGE_ASPECT_RATIO", "4:3")
+
+        def fake_post(url, headers, json, timeout):
+            calls.append((url, headers, json, timeout))
+            return _ProviderResponse({
+                "data": {"image_base64": [base64.b64encode(image_bytes).decode("ascii")]},
+                "trace_id": "trace-2",
+                "base_resp": {"status_code": 0, "status_msg": "success"},
+            })
+
+        monkeypatch.setattr(media_client.requests, "post", fake_post)
+
+        result = media_client.generate_image("engineering infographic")
+
+        assert result.data == image_bytes
+        assert result.media_type == "image/jpeg"
+        assert result.file_extension == "jpeg"
+        url, headers, payload, _timeout = calls[0]
+        assert url == "https://api.minimaxi.com/v1/image_generation"
+        assert headers["Authorization"] == "Bearer test-key"
+        assert payload["model"] == "image-test"
+        assert payload["aspect_ratio"] == "4:3"
+        assert payload["response_format"] == "base64"
+
+
+class TestOpenAIImageClient:
+    def test_image_request_payload_and_base64_decode(self, monkeypatch):
+        from core.llm import openai_image_client as image_client
+
+        calls = []
+        image_bytes = b"openai-jpeg-bytes"
+        monkeypatch.setenv("OPENAI_IMAGE_API_KEY", "test-openai-key")
+        monkeypatch.setenv("OPENAI_IMAGE_BASE_URL", "https://api.openai.com")
+        monkeypatch.setenv("OPENAI_IMAGE_MODEL", "gpt-image-test")
+        monkeypatch.setenv("OPENAI_IMAGE_SIZE", "1024x1024")
+        monkeypatch.setenv("OPENAI_IMAGE_QUALITY", "low")
+
+        def fake_post(url, headers, json, timeout):
+            calls.append((url, headers, json, timeout))
+            return _ProviderResponse(
+                {"data": [{"b64_json": base64.b64encode(image_bytes).decode("ascii")}]},
+                headers={"x-request-id": "req-test"},
+            )
+
+        monkeypatch.setattr(image_client.requests, "post", fake_post)
+
+        result = image_client.generate_image("COMAC infographic")
+
+        assert result.data == image_bytes
+        assert result.media_type == "image/jpeg"
+        assert result.file_extension == "jpeg"
+        assert result.trace_id == "req-test"
+        url, headers, payload, _timeout = calls[0]
+        assert url == "https://api.openai.com/v1/images/generations"
+        assert headers["Authorization"] == "Bearer test-openai-key"
+        assert payload["model"] == "gpt-image-test"
+        assert payload["size"] == "1024x1024"
+        assert payload["quality"] == "low"
+        assert payload["output_format"] == "jpeg"
 
 
 # ---------------------------------------------------------------------------
@@ -506,8 +674,10 @@ class TestStudioGenerate:
         finally:
             api_mod.invoke_local_llm = original_invoke
 
-    def test_generate_all_output_types(self, tmp_path):
+    def test_generate_all_output_types(self, tmp_path, monkeypatch):
         from fastapi.testclient import TestClient
+        monkeypatch.delenv("ENABLE_STUDIO_MEDIA_GENERATION", raising=False)
+        monkeypatch.delenv("ENABLE_EXTERNAL_MEDIA_GENERATION", raising=False)
         app, api = _get_app(tmp_path)
 
         api.source_registry = MagicMock()
@@ -522,10 +692,70 @@ class TestStudioGenerate:
 
         try:
             client = TestClient(app)
-            for ot in ("summary", "faq", "briefing", "glossary", "action_items"):
+            for ot in ("summary", "faq", "briefing", "glossary", "action_items", "podcast", "infographic"):
                 resp = client.post("/api/v1/notebooks/nb-1/studio/generate",
                                    json={"output_type": ot})
                 assert resp.status_code == 201, f"Failed for output_type={ot}: {resp.text}"
-                assert resp.json()["output_type"] == ot
+                payload = resp.json()
+                assert payload["output_type"] == ot
+                if ot in {"podcast", "infographic"}:
+                    assert payload["has_media"] is False
+                    assert payload["media_url"] is None
+                    assert "media_blocked_reason" in payload
         finally:
             api_mod.invoke_local_llm = original_invoke
+
+    def test_generate_podcast_creates_media_only_when_explicitly_enabled(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from core.llm.media_types import GeneratedMedia
+        from core.llm import minimax_media_client
+
+        monkeypatch.setenv("ENABLE_STUDIO_MEDIA_GENERATION", "1")
+        app, api = _get_app(tmp_path)
+        api.DEFAULT_SPACES_DIR = tmp_path / "spaces"
+
+        api.source_registry = MagicMock()
+        api.source_registry.list_by_notebook.return_value = [self._make_mock_source()]
+        self._mock_retriever(api, [
+            {"text": "反推展开需要轮载、解锁和转速限制。", "metadata": {"source": "a.pdf", "page": 1}}
+        ])
+        monkeypatch.setattr(api, "invoke_configured_llm", lambda system_prompt, user_query: "播客脚本。")
+        monkeypatch.setattr(
+            minimax_media_client,
+            "generate_tts_audio",
+            lambda text: GeneratedMedia(data=b"mp3-bytes", media_type="audio/mpeg", file_extension="mp3"),
+        )
+
+        client = TestClient(app)
+        resp = client.post("/api/v1/notebooks/nb-1/studio/generate", json={"output_type": "podcast"})
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["output_type"] == "podcast"
+        assert data["has_media"] is True
+        media_resp = client.get(data["media_url"])
+        assert media_resp.status_code == 200
+        assert media_resp.content == b"mp3-bytes"
+
+    def test_media_endpoint_serves_generated_file(self, tmp_path):
+        from fastapi.testclient import TestClient
+        app, api = _get_app(tmp_path)
+        out = api.studio_store.create("nb-1", "podcast", "播客脚本", citations=[])
+        api._write_studio_media("nb-1", out.id, "podcast", b"fake-mp3")
+
+        client = TestClient(app)
+        resp = client.get(f"/api/v1/notebooks/nb-1/studio/{out.id}/media")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("audio/mpeg")
+        assert resp.content == b"fake-mp3"
+
+    def test_media_endpoint_404_when_file_missing(self, tmp_path):
+        from fastapi.testclient import TestClient
+        app, api = _get_app(tmp_path)
+        out = api.studio_store.create("nb-1", "infographic", "image prompt", citations=[])
+
+        client = TestClient(app)
+        resp = client.get(f"/api/v1/notebooks/nb-1/studio/{out.id}/media")
+
+        assert resp.status_code == 404
