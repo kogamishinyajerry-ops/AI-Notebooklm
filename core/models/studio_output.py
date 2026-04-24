@@ -11,6 +11,8 @@ class StudioOutputType(str, Enum):
     BRIEFING     = "briefing"
     GLOSSARY     = "glossary"
     ACTION_ITEMS = "action_items"
+    PODCAST      = "podcast"
+    INFOGRAPHIC  = "infographic"
 
     @classmethod
     def values(cls) -> List[str]:
@@ -24,6 +26,8 @@ class StudioOutputType(str, Enum):
             cls.BRIEFING:     "技术简报",
             cls.GLOSSARY:     "术语表",
             cls.ACTION_ITEMS: "行动项",
+            cls.PODCAST:      "播客导览",
+            cls.INFOGRAPHIC:  "信息图",
         }
 
 

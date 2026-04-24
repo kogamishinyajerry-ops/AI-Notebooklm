@@ -10,6 +10,8 @@ const STUDIO_TYPE_LABELS = {
     briefing: '技术简报',
     glossary: '术语表',
     action_items: '行动项',
+    podcast: 'Audio Overview',
+    infographic: 'Infographic',
 };
 const WELCOME_MESSAGE = '先准备资料，再在这里提出问题并查看带出处的回答。';
 const DEMO_NOTEBOOK_PATTERNS = [/obsidian candidate workspace/i, /\bdemo\b/i, /立项\s*demo/i];
@@ -95,6 +97,9 @@ const canvasWrapper = document.getElementById('canvas-wrapper');
 const highlightOverlay = document.getElementById('highlight-overlay');
 const retryPageBtn = document.getElementById('retry-page-btn');
 const workspaceHint = document.getElementById('workspace-hint');
+const guideSourceCount = document.getElementById('guide-source-count');
+const guideEvidenceStatus = document.getElementById('guide-evidence-status');
+const guideNextAction = document.getElementById('guide-next-action');
 const demoQuestionStrip = document.getElementById('demo-question-strip');
 const demoQuestionList = document.getElementById('demo-question-list');
 const qaBlocker = document.getElementById('qa-blocker');
@@ -755,6 +760,7 @@ function updateWorkspaceStatus() {
         workspaceHint.textContent = platformState.backend.available
             ? '上传资料后，在这里提出问题并查看带出处的回答。'
             : '后端未连接时，Step 2 只显示阻塞提示。';
+        updateGuideStrip(0, '等待证据', '先上传资料');
         syncControls();
         return;
     }
@@ -766,6 +772,7 @@ function updateWorkspaceStatus() {
     if (!lastSources.length) {
         prepareHint.textContent = '当前 Notebook 还没有资料，请上传 PDF。';
         workspaceHint.textContent = '当前 Notebook 为空；请先回到 Step 1 上传资料。';
+        updateGuideStrip(0, '等待证据', '上传 PDF');
         syncControls();
         return;
     }
@@ -777,8 +784,22 @@ function updateWorkspaceStatus() {
     workspaceHint.textContent = currentSourceId
         ? '左侧证据页与回答中的引用跳转保持联动。'
         : '选择一份 READY 资料后，即可开始提问验证。';
+    updateGuideStrip(
+        readyCount,
+        window.currentEvidence.length ? `${window.currentEvidence.length} 条检索证据` : '等待本轮证据',
+        readyCount ? '提问或生成 Studio' : '等待解析完成'
+    );
 
     syncControls();
+}
+
+function updateGuideStrip(readyCount, evidenceStatus, nextAction) {
+    if (!guideSourceCount || !guideEvidenceStatus || !guideNextAction) {
+        return;
+    }
+    guideSourceCount.textContent = `${readyCount} READY source${readyCount === 1 ? '' : 's'}`;
+    guideEvidenceStatus.textContent = evidenceStatus;
+    guideNextAction.textContent = nextAction;
 }
 
 function syncControls() {
@@ -1175,7 +1196,7 @@ function resetPdfViewer(title, hint) {
     clearHighlight();
 }
 
-window.showSource = async function showSource(src, page, bboxString) {
+window.showSource = async function showSource(src, page, bboxString, sourceId = '') {
     if (!currentNotebookId) {
         return;
     }
@@ -1188,7 +1209,8 @@ window.showSource = async function showSource(src, page, bboxString) {
     const sources = lastSources.length
         ? lastSources
         : await apiJson(`/api/v1/notebooks/${currentNotebookId}/sources`);
-    const matchedSource = sources.find((item) => item.filename === src);
+    const matchedSource = sources.find((item) => sourceId && item.id === sourceId)
+        || sources.find((item) => item.filename === src);
     if (!matchedSource) {
         showToast('没有找到对应资料。', 'error');
         return;
@@ -1324,11 +1346,12 @@ function formatEvidencePanel(evidence = []) {
 
     const items = evidence.slice(0, 3).map((item, index) => {
         const bboxString = item?.bbox ? item.bbox.join(',') : '';
+        const sourceId = item?.source_id || '';
         return `
             <button
                 class="evidence-item"
                 type="button"
-                onclick="showSource('${escapeAttr(item.source_file)}', '${escapeAttr(item.page_number)}', '${escapeAttr(bboxString)}')"
+                onclick="showSource('${escapeAttr(item.source_file)}', '${escapeAttr(item.page_number)}', '${escapeAttr(bboxString)}', '${escapeAttr(sourceId)}')"
             >
                 <span class="evidence-rank">证据 ${index + 1}</span>
                 <span class="evidence-source">${escapeHtml(item.source_file)} · 第 ${escapeHtml(item.page_number)} 页</span>
@@ -1392,6 +1415,7 @@ async function performChat(query) {
         thinking.remove();
         window.currentCitations = response.citations || [];
         window.currentEvidence = response.evidence || [];
+        updateWorkspaceStatus();
         addMessage(
             'assistant',
             response.answer,
@@ -1684,12 +1708,13 @@ function renderStudioOutputs(outputs) {
 
     for (const output of [...outputs].reverse()) {
         const exportDisabled = !obsidianState.available;
+        const mediaCopy = getStudioMediaCopy(output);
         const node = document.createElement('div');
         node.className = 'studio-item';
         node.innerHTML = `
             <div>
                 <div class="studio-title">${escapeHtml(output.title)}</div>
-                <div class="studio-meta">${escapeHtml(STUDIO_TYPE_LABELS[output.output_type] || output.output_type)} · ${escapeHtml(formatDateTime(output.created_at))}</div>
+                <div class="studio-meta">${escapeHtml(STUDIO_TYPE_LABELS[output.output_type] || output.output_type)} · ${escapeHtml(formatDateTime(output.created_at))}${mediaCopy.metaSuffix}</div>
             </div>
             <div class="studio-actions">
                 <button class="studio-action-btn" type="button">查看</button>
@@ -1697,6 +1722,7 @@ function renderStudioOutputs(outputs) {
                 <button class="studio-action-btn" type="button"${exportDisabled ? ' disabled' : ''}>导出</button>
                 <button class="studio-action-btn" type="button">删除</button>
             </div>
+            ${mediaCopy.hintHtml}
             ${exportDisabled ? `<div class="field-hint note-inline-hint">${escapeHtml(obsidianUnavailableReason)}</div>` : ''}
         `;
 
@@ -1718,6 +1744,22 @@ function renderStudioOutputs(outputs) {
 
         studioList.appendChild(node);
     }
+}
+
+function getStudioMediaCopy(output) {
+    if (!['podcast', 'infographic'].includes(output.output_type)) {
+        return { metaSuffix: '', hintHtml: '' };
+    }
+    if (output.has_media && output.media_url) {
+        return {
+            metaSuffix: ' · 媒体已生成',
+            hintHtml: '<div class="field-hint studio-media-state">媒体文件可在详情中打开。</div>',
+        };
+    }
+    return {
+        metaSuffix: ' · 媒体未生成',
+        hintHtml: `<div class="field-hint studio-media-state blocked">${escapeHtml(output.media_blocked_reason || '媒体生成当前不可用。')}</div>`,
+    };
 }
 
 async function generateStudioOutput() {
@@ -1764,13 +1806,26 @@ async function viewStudioOutput(outputId) {
             key: `studio:${output.id}`,
             title: output.title,
             meta: `${STUDIO_TYPE_LABELS[output.output_type] || output.output_type} · ${formatDateTime(output.created_at)}`,
-            body: formatAssistantResponse(output.content, output.citations || []),
+            body: `${renderStudioMedia(output)}${formatAssistantResponse(output.content, output.citations || [])}`,
         });
         switchStep('export');
         openAdvancedContent(true);
     } catch (error) {
         showToast(`打开结构化输出失败：${error.message}`, 'error');
     }
+}
+
+function renderStudioMedia(output) {
+    if (!['podcast', 'infographic'].includes(output.output_type)) {
+        return '';
+    }
+    if (output.has_media && output.media_url) {
+        if (output.output_type === 'podcast') {
+            return `<audio class="studio-media-viewer" controls preload="metadata" src="${escapeAttr(output.media_url)}"></audio>`;
+        }
+        return `<img class="studio-media-viewer" src="${escapeAttr(output.media_url)}" alt="${escapeAttr(output.title || 'Infographic')}" loading="lazy">`;
+    }
+    return `<div class="studio-media-blocked">${escapeHtml(output.media_blocked_reason || '媒体生成当前不可用。')}</div>`;
 }
 
 async function saveStudioAsNote(outputId) {

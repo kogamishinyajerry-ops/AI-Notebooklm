@@ -4,7 +4,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Any, List, Optional
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
@@ -297,6 +297,7 @@ class Citation(BaseModel):
 
 
 class EvidenceItem(BaseModel):
+    source_id: Optional[str] = None
     source_file: str
     page_number: int
     snippet: str
@@ -869,6 +870,7 @@ def _build_evidence_items(contexts: List[dict]) -> List[EvidenceItem]:
             page_number = 0
         evidence.append(
             EvidenceItem(
+                source_id=meta.get("source_id"),
                 source_file=str(meta.get("source", "unknown_source")),
                 page_number=page_number,
                 snippet=text[:520],
@@ -1829,6 +1831,243 @@ class StudioGenerateRequest(BaseModel):
     source_ids: Optional[List[str]] = None  # None = all READY sources in notebook
 
 
+STUDIO_OUTPUT_PODCAST = "podcast"
+STUDIO_OUTPUT_INFOGRAPHIC = "infographic"
+MEDIA_STUDIO_OUTPUT_TYPES = {STUDIO_OUTPUT_PODCAST, STUDIO_OUTPUT_INFOGRAPHIC}
+MEDIA_CONTENT_TYPES = {
+    STUDIO_OUTPUT_PODCAST: "audio/mpeg",
+    STUDIO_OUTPUT_INFOGRAPHIC: "image/jpeg",
+}
+MEDIA_EXTENSIONS = {
+    STUDIO_OUTPUT_PODCAST: "mp3",
+    STUDIO_OUTPUT_INFOGRAPHIC: "jpeg",
+}
+IMAGE_PROVIDER_ALIASES = {
+    "minimax": "minimax",
+    "mini-max": "minimax",
+    "openai": "openai",
+}
+
+PODCAST_SCRIPT_PROMPT = """你是 COMAC NotebookLM 的 Audio Overview 编导。
+请严格基于以下资料，写一段适合中文 TTS 朗读的播客导览脚本。
+要求：
+1. 两位主持人交替发言，语气专业、克制，不要营销化。
+2. 先给出主题总览，再串联 3-5 个关键技术点。
+3. 不得加入资料外的新事实，不得伪造引用。
+4. 控制在 900-1400 个中文字之间。
+
+【参考资料】
+{context_blocks}
+"""
+
+INFOGRAPHIC_BRIEF_PROMPT = """You are an infographic art director for COMAC NotebookLM.
+Create one concise English image-generation prompt based only on the reference material.
+The image should look like a clean aerospace engineering infographic card, not a photorealistic aircraft ad.
+Include: title area, 3-5 labeled logic blocks, arrows, safety constraints, source-aware technical tone.
+Do not include unsupported claims or fake logos. Keep the prompt under 900 English words.
+
+Reference material:
+{context_blocks}
+"""
+
+
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _studio_media_generation_enabled() -> bool:
+    return _truthy_env("ENABLE_STUDIO_MEDIA_GENERATION") or _truthy_env("ENABLE_EXTERNAL_MEDIA_GENERATION")
+
+
+def _is_ready_status(status: Any) -> bool:
+    if isinstance(status, SourceStatus):
+        return status == SourceStatus.READY
+    ready_value = getattr(SourceStatus.READY, "value", SourceStatus.READY)
+    return str(status).lower() == str(ready_value).lower()
+
+
+def _resolve_studio_source_ids(notebook_id: str, source_ids: Optional[List[str]]) -> List[str]:
+    if source_ids:
+        return source_ids
+    all_sources = source_registry.list_by_notebook(notebook_id)
+    return [
+        s.id for s in all_sources
+        if _is_ready_status(getattr(s, "status", None))
+    ]
+
+
+def _retrieve_studio_chunks(
+    *,
+    notebook_id: str,
+    output_type: str,
+    source_ids: List[str],
+) -> List[dict]:
+    try:
+        return retriever_engine.retrieve(
+            query=output_type,
+            top_k=20,
+            final_k=20,
+            source_ids=source_ids,
+            notebook_id=notebook_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Retrieval error: {exc}") from exc
+
+
+def _safe_studio_content(raw_response: str, chunks: List[dict]) -> tuple[str, List[dict]]:
+    try:
+        _is_valid, safe_content, citations = AntiHallucinationGateway.validate_and_parse(
+            raw_response, chunks
+        )
+        return safe_content, citations
+    except Exception:
+        return raw_response, []
+
+
+def _studio_media_dir(notebook_id: str) -> Path:
+    return Path(DEFAULT_SPACES_DIR) / notebook_id / "studio_media"
+
+
+def _studio_media_path(notebook_id: str, output_id: str, output_type: str) -> Path:
+    extension = MEDIA_EXTENSIONS[output_type]
+    return _studio_media_dir(notebook_id) / f"{output_id}.{extension}"
+
+
+def _studio_media_url(notebook_id: str, output_id: str) -> str:
+    return f"/api/v1/notebooks/{notebook_id}/studio/{output_id}/media"
+
+
+def _studio_media_blocked_reason(output_type: str) -> str:
+    label = output_type
+    try:
+        for key, value in StudioOutputType.labels().items():
+            if getattr(key, "value", key) == output_type:
+                label = value
+                break
+    except Exception:
+        pass
+    if not _studio_media_generation_enabled():
+        return (
+            f"{label} media generation is disabled by C1 air-gap defaults. "
+            "Set ENABLE_STUDIO_MEDIA_GENERATION=1 and configure a trusted provider to generate media files."
+        )
+    return f"{label} media file is not available. Check provider credentials and generation logs."
+
+
+def _studio_output_payload(output, media_error: Optional[str] = None) -> dict[str, Any]:
+    payload = output.to_dict()
+    if output.output_type in MEDIA_STUDIO_OUTPUT_TYPES:
+        media_path = _studio_media_path(output.notebook_id, output.id, output.output_type)
+        payload["media_type"] = MEDIA_CONTENT_TYPES[output.output_type]
+        payload["media_url"] = _studio_media_url(output.notebook_id, output.id) if media_path.exists() else None
+        payload["has_media"] = media_path.exists()
+        if not payload["has_media"]:
+            payload["media_blocked_reason"] = media_error or _studio_media_blocked_reason(output.output_type)
+    return payload
+
+
+def _write_studio_media(notebook_id: str, output_id: str, output_type: str, data: bytes) -> Path:
+    media_dir = _studio_media_dir(notebook_id)
+    media_dir.mkdir(parents=True, exist_ok=True)
+    media_path = _studio_media_path(notebook_id, output_id, output_type)
+    media_path.write_bytes(data)
+    return media_path
+
+
+def _studio_image_provider() -> str:
+    configured = os.getenv("STUDIO_IMAGE_PROVIDER", "minimax").strip().lower() or "minimax"
+    if configured == "auto":
+        if os.getenv("OPENAI_IMAGE_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip():
+            return "openai"
+        return "minimax"
+    try:
+        return IMAGE_PROVIDER_ALIASES[configured]
+    except KeyError as exc:
+        allowed = sorted(set(IMAGE_PROVIDER_ALIASES) | {"auto"})
+        raise ValueError(f"STUDIO_IMAGE_PROVIDER must be one of: {', '.join(allowed)}.") from exc
+
+
+def _generate_infographic_image(prompt: str):
+    provider = _studio_image_provider()
+    if provider == "openai":
+        from core.llm.openai_image_client import generate_image as generate_openai_image
+
+        return generate_openai_image(prompt)
+
+    from core.llm.minimax_media_client import generate_image
+
+    return generate_image(prompt)
+
+
+def _generate_text_studio_output(notebook_id: str, output_type: str, chunks: List[dict]) -> dict[str, Any]:
+    context_blocks = build_context_block(chunks)
+    studio_prompt = STUDIO_PROMPTS[output_type].format(
+        context_blocks=context_blocks
+    )
+
+    try:
+        raw_response = invoke_configured_llm(
+            system_prompt=studio_prompt,
+            user_query=f"请生成: {output_type}",
+        )
+    except LLMUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    safe_content, citations = _safe_studio_content(raw_response, chunks)
+    output = studio_store.create(
+        notebook_id=notebook_id,
+        output_type=output_type,
+        content=safe_content,
+        citations=citations,
+    )
+    return _studio_output_payload(output)
+
+
+def _generate_media_studio_output(notebook_id: str, output_type: str, chunks: List[dict]) -> dict[str, Any]:
+    context_blocks = build_context_block(chunks)
+    if output_type == STUDIO_OUTPUT_PODCAST:
+        system_prompt = PODCAST_SCRIPT_PROMPT.format(context_blocks=context_blocks)
+        user_query = "请生成一段可直接用于中文 TTS 的播客导览脚本。"
+        title = "播客导览"
+    else:
+        system_prompt = INFOGRAPHIC_BRIEF_PROMPT.format(context_blocks=context_blocks)
+        user_query = "Create the infographic image prompt now."
+        title = "信息图"
+
+    try:
+        raw_response = invoke_configured_llm(
+            system_prompt=system_prompt,
+            user_query=user_query,
+        )
+    except LLMUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    safe_content, citations = _safe_studio_content(raw_response, chunks)
+    output = studio_store.create(
+        notebook_id=notebook_id,
+        output_type=output_type,
+        content=safe_content,
+        citations=citations,
+        title=title,
+    )
+
+    if not _studio_media_generation_enabled():
+        return _studio_output_payload(output)
+
+    try:
+        if output_type == STUDIO_OUTPUT_PODCAST:
+            from core.llm.minimax_media_client import generate_tts_audio
+
+            media = generate_tts_audio(safe_content)
+        else:
+            media = _generate_infographic_image(safe_content)
+        _write_studio_media(notebook_id, output.id, output_type, media.data)
+    except Exception as exc:
+        return _studio_output_payload(output, media_error=str(exc))
+
+    return _studio_output_payload(output)
+
+
 @app.post("/api/v1/notebooks/{notebook_id}/studio/generate", status_code=201)
 async def generate_studio_output(
     request: Request,
@@ -1850,31 +2089,18 @@ async def generate_studio_output(
             )
 
         # Resolve source_ids (use all READY sources if not specified)
-        source_ids = payload.source_ids
-        if not source_ids:
-            all_sources = source_registry.list_by_notebook(notebook_id)
-            source_ids = [
-                s.id for s in all_sources
-                if getattr(s, "status", None) in ("ready", "READY")
-            ]
-
+        source_ids = _resolve_studio_source_ids(notebook_id, payload.source_ids)
         if not source_ids:
             raise HTTPException(
                 status_code=422,
                 detail="No READY sources available in this notebook for generation."
             )
 
-        # Retrieve context chunks
-        try:
-            chunks = retriever_engine.retrieve(
-                query=payload.output_type,
-                top_k=20,
-                final_k=20,
-                source_ids=source_ids,
-                notebook_id=notebook_id,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Retrieval error: {exc}") from exc
+        chunks = _retrieve_studio_chunks(
+            notebook_id=notebook_id,
+            output_type=payload.output_type,
+            source_ids=source_ids,
+        )
 
         if not chunks:
             raise HTTPException(
@@ -1882,37 +2108,18 @@ async def generate_studio_output(
                 detail="No relevant content found in the specified sources."
             )
 
-        # Build prompt and invoke LLM
-        context_blocks = build_context_block(chunks)
-        studio_prompt = STUDIO_PROMPTS[payload.output_type].format(
-            context_blocks=context_blocks
-        )
-
-        try:
-            raw_response = invoke_configured_llm(
-                system_prompt=studio_prompt,
-                user_query=f"请生成: {payload.output_type}",
+        if payload.output_type in MEDIA_STUDIO_OUTPUT_TYPES:
+            output_payload = _generate_media_studio_output(
+                notebook_id=notebook_id,
+                output_type=payload.output_type,
+                chunks=chunks,
             )
-        except LLMUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-        # Gateway validation (citations optional for studio outputs)
-        try:
-            _is_valid, safe_content, citations = AntiHallucinationGateway.validate_and_parse(
-                raw_response, chunks
+        else:
+            output_payload = _generate_text_studio_output(
+                notebook_id=notebook_id,
+                output_type=payload.output_type,
+                chunks=chunks,
             )
-        except Exception:
-            # If gateway fails, use raw response with empty citations
-            safe_content = raw_response
-            citations = []
-
-        # Persist and return
-        output = studio_store.create(
-            notebook_id=notebook_id,
-            output_type=payload.output_type,
-            content=safe_content,
-            citations=citations,
-        )
     except HTTPException as exc:
         _record_audit_failure(
             request,
@@ -1929,12 +2136,12 @@ async def generate_studio_output(
         request,
         event=AuditEvent.STUDIO_CREATE,
         resource_type="studio",
-        resource_id=output.id,
+        resource_id=output_payload["id"],
         parent_resource_id=notebook_id,
         http_status=201,
         payload=audit_payload,
     )
-    return output.to_dict()
+    return output_payload
 
 
 @app.get("/api/v1/notebooks/{notebook_id}/studio")
@@ -1944,7 +2151,7 @@ def list_studio_outputs(
 ):
     """List all generated studio outputs for a notebook."""
     _require_notebook_access(notebook_id, principal)
-    return [o.to_dict() for o in studio_store.list_by_notebook(notebook_id)]
+    return [_studio_output_payload(o) for o in studio_store.list_by_notebook(notebook_id)]
 
 
 @app.get("/api/v1/notebooks/{notebook_id}/studio/{output_id}")
@@ -1958,7 +2165,30 @@ def get_studio_output(
     output = studio_store.get(notebook_id, output_id)
     if output is None:
         raise HTTPException(status_code=404, detail="Studio output not found")
-    return output.to_dict()
+    return _studio_output_payload(output)
+
+
+@app.get("/api/v1/notebooks/{notebook_id}/studio/{output_id}/media")
+def get_studio_media(
+    notebook_id: str,
+    output_id: str,
+    principal: Optional[AuthPrincipal] = Depends(get_current_principal),
+):
+    """Return a generated Studio media file without exposing provider credentials."""
+    _require_notebook_access(notebook_id, principal)
+    output = studio_store.get(notebook_id, output_id)
+    if output is None or output.output_type not in MEDIA_STUDIO_OUTPUT_TYPES:
+        raise HTTPException(status_code=404, detail="Studio media not found")
+
+    media_path = _studio_media_path(notebook_id, output_id, output.output_type)
+    if not media_path.exists():
+        raise HTTPException(status_code=404, detail="Studio media not found")
+
+    return FileResponse(
+        media_path,
+        media_type=MEDIA_CONTENT_TYPES[output.output_type],
+        filename=f"{output.id}.{MEDIA_EXTENSIONS[output.output_type]}",
+    )
 
 
 @app.delete("/api/v1/notebooks/{notebook_id}/studio/{output_id}", status_code=204)
@@ -1972,8 +2202,11 @@ def delete_studio_output(
     audit_payload = {"notebook_id": notebook_id}
     try:
         _require_notebook_access(notebook_id, principal)
-        if not studio_store.delete(notebook_id, output_id):
+        output = studio_store.get(notebook_id, output_id)
+        if output is None or not studio_store.delete(notebook_id, output_id):
             raise HTTPException(status_code=404, detail="Studio output not found")
+        if output.output_type in MEDIA_STUDIO_OUTPUT_TYPES:
+            _studio_media_path(notebook_id, output_id, output.output_type).unlink(missing_ok=True)
     except HTTPException as exc:
         _record_audit_failure(
             request,
