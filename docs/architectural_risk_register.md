@@ -139,6 +139,83 @@ between executor self-verification and independent terminal review.
 
 ---
 
+## R-2604-03 — Window-2 Codex review coverage gap (PR #53, #54, #55)
+
+- **Severity:** P0 (process integrity), P2 (runtime — no observed defect at merge time)
+- **Detected:** 2026-04-26 during Window-2 closeout audit (`docs/v4_3_window_2_reconciliation.md` §5).
+- **Owner:** Codex GPT-5.4 (W-V43-11)
+- **Status:** **Mitigated** (2026-04-26). Retained until Kogami next deep acceptance acknowledges the retrospective audit trail.
+
+### Symptom
+
+Three Window-2 PRs merged without the Codex review their CLAUDE.md hard-rule trigger required:
+
+| PR | CLAUDE.md trigger | Codex at merge |
+|---|---|---|
+| #53 (W-V43-7 multi-worker rate-limit) | "API 契约 / adapter boundary >5 LOC" | None |
+| #54 (W-V43-8 admin bypass) | "API 契约 / adapter boundary" (borderline) | None |
+| #55 (W-V43-demo) | **double trigger** — multi-frontend + UI flow change | None |
+
+PR #56 was correctly reviewed by `chatgpt-codex-connector`, demonstrating the workflow is operational; the gap was procedural, not infrastructural.
+
+### Why this matters
+
+PR #55 is the largest single-PR delta in V4.3 (+4881/−1132 LOC). Self-verification alone is below the project's stated governance bar for that category of change. Without retrospective audit, the PR's risk surface is unmapped.
+
+### Mitigation (W-V43-11, this PR)
+
+- `docs/v4_3_w11_codex_window2_audit.md` collects retrospective Codex findings and executor reading notes.
+- Codex independent verdicts:
+  - **PR #55**: CHANGES_REQUIRED (2 HIGH, 3 MEDIUM, 1 LOW)
+  - **PR #54**: APPROVE WITH FOLLOW-UPS (1 LOW)
+  - **PR #53**: APPROVE WITH FOLLOW-UPS (2 MEDIUM, 1 LOW)
+- The two HIGH findings on PR #55 (advisory verification gate; unscoped chat allowing demo-seed bleed) become first-class Window-3 work items (W-V43-11.1, W-V43-11.2). Both pre-date PR #55 — they are not Window-2 regressions — but PR #55 widened the exploit surface of the verification advisory gap.
+- Three MEDIUM PR #55 items (provider drift in audit trail, MiniMax operator visibility, loopback-only restriction) become Window-3 governance work items.
+- PR #53 / #54 follow-ups are smaller hardening items (W-V43-11.7-9).
+
+### Exit criteria
+
+- W-V43-11 audit PR merged.
+- Codex Notion supplement review rows created for PRs #53, #54, #55. _(operator step)_
+- W-V43-11.1 and W-V43-11.2 remediation PRs landed before any new Window-3 user-facing PR. _(forward-looking)_
+- Move R-2604-03 to Resolved after Kogami next deep acceptance acknowledges the retrospective audit trail.
+
+---
+
+## R-2604-04 — C2 retrieval-quality baseline is hardware-locked
+
+- **Severity:** P2 (process integrity — sentinel can pass on one machine and fail on another for the same code)
+- **Detected:** 2026-04-26 during Window-2 closeout fresh-worktree pytest (`docs/v4_3_window_2_reconciliation.md` §6 + §4.5).
+- **Owner:** Claude Code (W-V43-13)
+- **Status:** Open
+
+### Symptom
+
+`tests/test_retrieval_quality_regression.py::test_mrr_no_regression` fails deterministically on a fresh Apple Silicon worktree at:
+- pre-Window-2 commit `30c22f6`: MRR@5=0.3383, 11.99% drift from baseline=0.3844
+- post-Window-2 commit `53a5fe2`: MRR@5=0.3539, 7.93% drift from baseline=0.3844
+- threshold: 5% maximum drift
+
+The same test passes on the executor's recording environment. Window 2 narrowed the drift by 4 pp; the regression itself pre-dates Window 2.
+
+### Why this matters
+
+A merge gate that fails on a co-developer's machine and passes on the canonical executor's machine is governance-fragile. Independent verification of the `8 passed` C2 sentinel claim becomes impossible without the executor's exact environment.
+
+### Mitigation (W-V43-13, scheduled)
+
+Three options (`docs/v4_3_window_2_reconciliation.md` §4.5):
+- **A.** Pin embedding model file format (force `safetensors` over `pytorch_model.bin`); assert tokenizer hash at sentinel boot.
+- **B.** Checkpoint pre-computed embeddings as a fixture artifact (small JSON or NPZ committed); sentinel runs against frozen vectors. **Recommended** as the cleanest C1-compliant fix.
+- **C.** Relax regression threshold to a hardware-aware floor (compare against previous commit's measured MRR rather than a frozen baseline). Trades sentinel sharpness.
+
+### Exit criteria
+
+- `test_mrr_no_regression` passes on at least two distinct machines (executor + a fresh Apple Silicon Mac) at the same commit.
+- Determinism mechanism documented in `docs/RETRIEVAL_QUALITY_BASELINE.md`.
+
+---
+
 ## Resolved
 
-- R-2604-01 (2026-04-18, fix commit on branch `fix/v4-3-test-isolation-r2604-01`).
+- R-2604-01 (2026-04-18, fix commit on branch `fix/v4-3-test-isolation-r2604-01`; sentinel-protected by PR #57 as of 2026-04-23).
