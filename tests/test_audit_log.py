@@ -603,6 +603,203 @@ def test_audit_logger_chat_request_no_message_body(tmp_path, monkeypatch):
     assert "hello world" not in row["payload_json"]
 
 
+def test_audit_logger_chat_request_records_local_provider(tmp_path, monkeypatch):
+    """W-V43-11.3 (Codex W-V43-11-03 mitigation): chat audit payload must
+    record `LLM_PROVIDER=local` so an operator can detect provider drift."""
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("VLLM_URL", raising=False)
+    api_main = _import_main_api(tmp_path)
+    api_main.invoke_local_llm = lambda system_prompt, user_query: "<answer>safe</answer>"
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: [
+        {"source_file": "manual.pdf", "page_number": 1, "content": "ctx", "bbox": None}
+    ]
+
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/v1/chat", json={"query": "hi"})
+
+    assert response.status_code == 200
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.CHAT_REQUEST)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    assert payload["llm.invocation_state"] == "succeeded"
+    assert payload["llm.provider"] == "local"
+    # W-V43-11.3 round 3: reduced to origin only (scheme://host:port) so
+    # path-embedded secrets cannot leak. Default localhost retains its
+    # standard port.
+    assert payload["llm.configured_url"] == "http://localhost:8001"
+    assert payload["llm.is_external_validation"] is False
+
+
+def test_audit_logger_strips_credentials_from_llm_url(tmp_path, monkeypatch):
+    """W-V43-11.3 Codex round 1 (P1): audit must NOT persist embedded
+    basic-auth credentials or query-string secrets in `llm.configured_url`.
+    """
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    # Pretend the operator configured a credentialed URL with an API token
+    # in the query string (a common reverse-proxy pattern).
+    monkeypatch.setenv("VLLM_URL", "http://admin:supersecret@127.0.0.1:8001/v1?api_key=DEADBEEF")
+    monkeypatch.setenv("ALLOW_REMOTE_VLLM", "1")
+    api_main = _import_main_api(tmp_path)
+    api_main.invoke_local_llm = lambda system_prompt, user_query: "<answer>safe</answer>"
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: [
+        {"source_file": "m.pdf", "page_number": 1, "content": "c", "bbox": None}
+    ]
+
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/v1/chat", json={"query": "hi"})
+
+    assert response.status_code == 200
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.CHAT_REQUEST)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    sanitized = payload["llm.configured_url"]
+    assert "supersecret" not in sanitized
+    assert "admin@" not in sanitized
+    assert "DEADBEEF" not in sanitized
+    assert "api_key" not in sanitized
+    # Round 3: also strip path (could carry secrets in `.../key/<token>/v1`).
+    assert sanitized == "http://127.0.0.1:8001"
+
+
+def test_audit_logger_preserves_ipv6_brackets_in_llm_url(tmp_path, monkeypatch):
+    """W-V43-11.3 Codex round 2 (P3): IPv6 literal hosts must keep their
+    brackets in the sanitized URL or the audit value becomes unparseable.
+    """
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("VLLM_URL", "http://[::1]:8001/v1")
+    api_main = _import_main_api(tmp_path)
+    api_main.invoke_local_llm = lambda system_prompt, user_query: "<answer>safe</answer>"
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: [
+        {"source_file": "m.pdf", "page_number": 1, "content": "c", "bbox": None}
+    ]
+
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/v1/chat", json={"query": "hi"})
+
+    assert response.status_code == 200
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.CHAT_REQUEST)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    assert payload["llm.configured_url"] == "http://[::1]:8001"
+
+
+def test_audit_logger_strips_path_segment_secrets_from_llm_url(tmp_path, monkeypatch):
+    """W-V43-11.3 Codex round 3 (P2): path can carry gateway secrets like
+    `.../key/<token>/v1`. The audit-side sanitizer must drop the path entirely.
+    """
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("VLLM_URL", "https://gateway.example.com:8443/key/SECRETOKEN/v1")
+    monkeypatch.setenv("ALLOW_REMOTE_VLLM", "1")
+    api_main = _import_main_api(tmp_path)
+    api_main.invoke_local_llm = lambda system_prompt, user_query: "<answer>safe</answer>"
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: [
+        {"source_file": "m.pdf", "page_number": 1, "content": "c", "bbox": None}
+    ]
+
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/v1/chat", json={"query": "hi"})
+
+    assert response.status_code == 200
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.CHAT_REQUEST)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    sanitized = payload["llm.configured_url"]
+    assert "SECRETOKEN" not in sanitized
+    assert "/key/" not in sanitized
+    assert sanitized == "https://gateway.example.com:8443"
+
+
+def test_audit_logger_early_return_does_not_attribute_llm_call(tmp_path, monkeypatch):
+    """W-V43-11.3 Codex round 4 (P2): if the chat handler short-circuits
+    before invoking the LLM (e.g. empty retrieval), the audit row must
+    record `llm.invoked=False` and must NOT include provider attribution.
+    Otherwise a request that never left the machine would be misattributed.
+    """
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "minimax")
+    monkeypatch.setenv("MINIMAX_API_KEY", "fake-key")
+    api_main = _import_main_api(tmp_path)
+    # Empty retrieval triggers the "no results" early-return branch BEFORE
+    # invoke_configured_llm is called.
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: []
+
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/v1/chat", json={"query": "hi"})
+
+    assert response.status_code == 200
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.CHAT_REQUEST)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    assert payload["llm.invocation_state"] == "skipped"
+    # The early-return path must NOT carry provider attribution because the
+    # request never reached the LLM.
+    assert "llm.provider" not in payload
+    assert "llm.configured_url" not in payload
+
+
+def test_audit_logger_failed_invoke_records_failed_state_with_provider(tmp_path, monkeypatch):
+    """W-V43-11.3 Codex round 5 (P2): a failed LLM call must be
+    distinguishable from a never-attempted one. State='failed' AND provider
+    fields populated, so an operator can tell which provider the request
+    tried to reach.
+    """
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("VLLM_URL", raising=False)
+    api_main = _import_main_api(tmp_path)
+
+    def _raise_unavailable(system_prompt, user_query):
+        raise api_main.LLMUnavailableError("upstream timeout (synthetic)")
+
+    api_main.invoke_local_llm = _raise_unavailable
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: [
+        {"source_file": "m.pdf", "page_number": 1, "content": "c", "bbox": None}
+    ]
+
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/v1/chat", json={"query": "hi"})
+
+    assert response.status_code == 503
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.CHAT_REQUEST)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    assert payload["llm.invocation_state"] == "failed"
+    # Provider attribution IS attached on the failure path so operators can
+    # see which provider the failed request tried to reach.
+    assert payload["llm.provider"] == "local"
+    assert payload["llm.configured_url"] == "http://localhost:8001"
+    assert payload["llm.error_class"] == "LLMUnavailableError"
+
+
+def test_audit_logger_chat_request_records_minimax_provider(tmp_path, monkeypatch):
+    """W-V43-11.3: chat audit must distinguish off-box minimax executions."""
+    monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "minimax")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.delenv("MINIMAX_BASE_URL", raising=False)
+    api_main = _import_main_api(tmp_path)
+    api_main.invoke_local_llm = lambda system_prompt, user_query: "<answer>safe</answer>"
+    api_main.retriever_engine.retrieve = lambda *args, **kwargs: [
+        {"source_file": "manual.pdf", "page_number": 1, "content": "ctx", "bbox": None}
+    ]
+
+    with TestClient(api_main.app) as client:
+        response = client.post("/api/v1/chat", json={"query": "hi"})
+
+    assert response.status_code == 200
+    row = _fetch_latest_audit_row(api_main._DB_PATH, AuditEvent.CHAT_REQUEST)
+    assert row is not None
+    payload = json.loads(row["payload_json"])
+    assert payload["llm.provider"] == "minimax"
+    # Round 3: only origin (scheme://host) is retained; path is dropped.
+    assert payload["llm.configured_url"] == "https://api.minimax.io"
+    assert payload["llm.is_external_validation"] is True
+
+
 def test_audit_logger_auth_disabled_uses_ip_principal(tmp_path, monkeypatch):
     monkeypatch.delenv("NOTEBOOKLM_API_KEYS", raising=False)
     api_main = _import_main_api(tmp_path)

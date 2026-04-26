@@ -36,6 +36,14 @@ _ALLOWED_FIELDS = {
     "migrate.from_owner",
     "migrate.to_owner",
     "migrate.forced",
+    # W-V43-11.3 (R-2604-03 mitigation): LLM provider snapshot for chat /
+    # studio audit so operators can detect provider drift post-hoc.
+    "llm.invocation_state",
+    "llm.error_class",
+    "llm.provider",
+    "llm.configured_url",
+    "llm.is_external_validation",
+    "llm.snapshot_error",
 }
 
 
