@@ -1157,6 +1157,72 @@ def invoke_configured_llm(system_prompt: str, user_query: str) -> str:
     return invoke_local_llm(system_prompt, user_query)
 
 
+def _sanitize_llm_url_for_audit(raw_url: str) -> str:
+    """Reduce an LLM endpoint URL to its origin (scheme + host + port) for audit.
+
+    Codex W-V43-11.3 review:
+    - Round 1 (P1): basic-auth (`user:pass@host`) and query secrets
+      (`?api_key=...`) must not enter the append-only audit log.
+    - Round 2 (P3): IPv6 literals must keep their brackets in the rebuilt URL.
+    - Round 3 (P2): paths can also carry secrets (e.g. `.../key/<token>/v1`
+      from gateway proxies), so the path is dropped too.
+
+    The retained shape — `scheme://host[:port]` — is enough for an operator
+    to detect provider drift after the fact (which host served the LLM)
+    without persisting any credential-bearing surface.
+    """
+    if not raw_url or raw_url == "-":
+        return "-"
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(raw_url)
+        host = parsed.hostname or ""
+        port = parsed.port
+        # Re-bracket IPv6 literals; `parsed.hostname` strips the brackets.
+        if ":" in host and not host.startswith("["):
+            host_for_netloc = f"[{host}]"
+        else:
+            host_for_netloc = host
+        if not host_for_netloc:
+            return "-"
+        netloc = host_for_netloc if port is None else f"{host_for_netloc}:{port}"
+        scheme = parsed.scheme or "http"
+        return f"{scheme}://{netloc}"
+    except Exception:
+        return "-"
+
+
+def _llm_provider_audit_fields() -> dict:
+    """Audit-namespaced provider snapshot for chat/studio audit payloads.
+
+    W-V43-11.3 (Codex W-V43-11-03 mitigation): operators must be able to
+    distinguish post-hoc whether a chat or studio request executed under
+    `LLM_PROVIDER=local` (private inference) or `LLM_PROVIDER=minimax`
+    (off-box). The chat and studio audit events therefore carry the
+    provider snapshot. If the LLM is misconfigured we still emit a record
+    so the audit trail is never silently broken — failures show up as
+    `llm.provider="error"`.
+
+    `llm.configured_url` is sanitized via `_sanitize_llm_url_for_audit` so
+    embedded credentials or signed query strings cannot leak into the
+    append-only audit log.
+    """
+    try:
+        snapshot = get_llm_settings_snapshot()
+    except Exception as exc:  # pragma: no cover - defensive only
+        return {
+            "llm.provider": "error",
+            "llm.configured_url": "-",
+            "llm.is_external_validation": False,
+            "llm.snapshot_error": str(exc)[:200],
+        }
+    return {
+        "llm.provider": snapshot.get("provider", "unknown"),
+        "llm.configured_url": _sanitize_llm_url_for_audit(snapshot.get("configured_url", "-")),
+        "llm.is_external_validation": bool(snapshot.get("is_external_validation", False)),
+    }
+
+
 def _default_llm_probe_timeout() -> float:
     snapshot = get_llm_settings_snapshot()
     if snapshot.get("provider") == "minimax":
@@ -1189,10 +1255,19 @@ async def chat_endpoint(
     Returns HTTP 503 if the local LLM service is unavailable.
     """
     notebook_id = chat_request.resolved_notebook_id
+    # W-V43-11.3 rounds 4-5: three-state audit so failure paths are
+    # distinguishable from never-attempted.
+    #   skipped   — early-return before the handler tried to call the LLM
+    #   failed    — invoke_configured_llm raised after the attempt left the
+    #               handler (provider attribution attached: the request DID
+    #               try to leave the machine)
+    #   succeeded — invoke_configured_llm returned cleanly
+    # Provider fields are attached at "failed" / "succeeded" only.
     audit_payload = {
         "notebook_id": notebook_id or "-",
         "chat.message_length": len(chat_request.query or ""),
         "chat.history_turns": len(chat_request.history or []),
+        "llm.invocation_state": "skipped",
     }
 
     try:
@@ -1273,9 +1348,15 @@ async def chat_endpoint(
         system_prompt = QA_SYSTEM_PROMPT.format(context_blocks=context_str)
 
         # 4. Generate (LLM) — raise 503 if service unavailable
+        # W-V43-11.3: capture provider snapshot now so both success AND failure
+        # paths attach attribution. The state field below distinguishes them.
+        audit_payload.update(_llm_provider_audit_fields())
         try:
             raw_response = invoke_configured_llm(system_prompt, chat_request.query)
+            audit_payload["llm.invocation_state"] = "succeeded"
         except LLMUnavailableError as exc:
+            audit_payload["llm.invocation_state"] = "failed"
+            audit_payload["llm.error_class"] = exc.__class__.__name__
             emit_json_log(
                 logger,
                 "retrieval.summary",
@@ -1837,7 +1918,10 @@ async def generate_studio_output(
     principal: Optional[AuthPrincipal] = Depends(get_current_principal),
 ):
     """Generate a structured text output from notebook sources using the local LLM."""
-    audit_payload = {"notebook_id": notebook_id}
+    audit_payload = {
+        "notebook_id": notebook_id,
+        "llm.invocation_state": "skipped",
+    }
     try:
         _require_notebook_access(notebook_id, principal)
 
@@ -1888,12 +1972,18 @@ async def generate_studio_output(
             context_blocks=context_blocks
         )
 
+        # W-V43-11.3: capture provider snapshot before invoke so failure paths
+        # also carry attribution. State field distinguishes success vs failure.
+        audit_payload.update(_llm_provider_audit_fields())
         try:
             raw_response = invoke_configured_llm(
                 system_prompt=studio_prompt,
                 user_query=f"请生成: {payload.output_type}",
             )
+            audit_payload["llm.invocation_state"] = "succeeded"
         except LLMUnavailableError as exc:
+            audit_payload["llm.invocation_state"] = "failed"
+            audit_payload["llm.error_class"] = exc.__class__.__name__
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
         # Gateway validation (citations optional for studio outputs)
