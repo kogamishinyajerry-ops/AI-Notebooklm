@@ -186,8 +186,8 @@ PR #55 is the largest single-PR delta in V4.3 (+4881/−1132 LOC). Self-verifica
 
 - **Severity:** P2 (process integrity — sentinel can pass on one machine and fail on another for the same code)
 - **Detected:** 2026-04-26 during Window-2 closeout fresh-worktree pytest (`docs/v4_3_window_2_reconciliation.md` §6 + §4.5).
-- **Owner:** Claude Code (W-V43-13)
-- **Status:** Open
+- **Owner:** Claude Code (W-V43-13 partial; engine-layer Option B deferred to Window 5+)
+- **Status:** Mitigated (metric layer); engine-layer reproducibility deferred
 
 ### Symptom
 
@@ -202,17 +202,23 @@ The same test passes on the executor's recording environment. Window 2 narrowed 
 
 A merge gate that fails on a co-developer's machine and passes on the canonical executor's machine is governance-fragile. Independent verification of the `8 passed` C2 sentinel claim becomes impossible without the executor's exact environment.
 
-### Mitigation (W-V43-13, scheduled)
+### Mitigation (W-V43-13, partial — landed 2026-04-26)
 
-Three options (`docs/v4_3_window_2_reconciliation.md` §4.5):
+Three options were considered (`docs/v4_3_window_2_reconciliation.md` §4.5):
 - **A.** Pin embedding model file format (force `safetensors` over `pytorch_model.bin`); assert tokenizer hash at sentinel boot.
 - **B.** Checkpoint pre-computed embeddings as a fixture artifact (small JSON or NPZ committed); sentinel runs against frozen vectors. **Recommended** as the cleanest C1-compliant fix.
 - **C.** Relax regression threshold to a hardware-aware floor (compare against previous commit's measured MRR rather than a frozen baseline). Trades sentinel sharpness.
 
+W-V43-13 landed the **metric-layer slice of Option B** as
+`tests/test_retrieval_metric_canonical.py` + `docs/RETRIEVAL_QUALITY_BASELINE.md`. The metric primitives in `tests/retrieval_quality_baseline/evaluator.py` are now sentinel-protected against drift via the canonical `per_query_summary` in `baseline.json` — pure-Python, hardware-independent, runs in ms.
+
+The **full Option B** (mocking ChromaDB HNSW + EmbeddingManager so the live-pipeline test consumes frozen vectors instead of running the engine) is genuinely larger than a single PR and is deferred. The metric-layer sentinel buys diagnostic clarity in the meantime: when the live test fails on a new machine, the operator can run the metric sentinel separately to confirm the drift is engine-layer (hardware) rather than metric-layer (code).
+
 ### Exit criteria
 
-- `test_mrr_no_regression` passes on at least two distinct machines (executor + a fresh Apple Silicon Mac) at the same commit.
-- Determinism mechanism documented in `docs/RETRIEVAL_QUALITY_BASELINE.md`.
+- ✅ Metric-layer determinism documented in `docs/RETRIEVAL_QUALITY_BASELINE.md` and sentinel-protected.
+- ✅ `baseline.json` self-consistency sentinel-protected.
+- ⏳ `test_mrr_no_regression` passes on at least two distinct machines (executor + a fresh Apple Silicon Mac) at the same commit. _(blocked on full Option B; out of scope for W-V43-13)_
 
 ---
 
