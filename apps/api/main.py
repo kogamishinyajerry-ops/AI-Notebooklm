@@ -219,6 +219,22 @@ def on_startup():
             notebook_store.update(space_id, source_count=len(source_registry.list_by_notebook(space_id)))
 
 
+@app.on_event("shutdown")
+def on_shutdown():
+    # W-V43-11.9 (closes Codex finding RL-53-03): when NOTEBOOKLM_SQLITE_POOL_SIZE>0
+    # is set, idle pooled SQLite connections must be closed before the process
+    # exits. Without this hook the connections are reclaimed by the OS but WAL
+    # checkpoints / file locks may linger long enough to slow down clean
+    # restarts in containerized deployments. The function is a no-op when no
+    # pools were created, so it is safe to call unconditionally.
+    from core.storage.sqlite_db import close_connection_pools
+
+    try:
+        close_connection_pools()
+    except Exception:  # pragma: no cover — observability must not break shutdown
+        logger.exception("close_connection_pools failed during shutdown")
+
+
 @app.middleware("http")
 async def add_request_observability(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
