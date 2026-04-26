@@ -15,7 +15,8 @@ DEFAULT_LOCAL_LLM_MODEL = "qwen-2.5"
 DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/anthropic"
 DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7-highspeed"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
-_ALLOWED_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_ALLOWED_LOCAL_HOSTS = _LOOPBACK_HOSTS | {"host.docker.internal"}
 _ALLOWED_LOCAL_SUFFIXES = (
     ".local",
     ".internal",
@@ -43,6 +44,7 @@ class LLMConfig:
     is_private_network: bool
     api_key: str | None = None
     is_external_validation: bool = False
+    is_loopback_host: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -69,6 +71,30 @@ def _flag(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Strict loopback semantics for the C1 air-gap default lane.
+
+    Loopback covers the canonical same-host targets only (`localhost`,
+    `127.0.0.1`, `::1`, and any IP literal whose `is_loopback` is True).
+
+    `host.docker.internal` is intentionally NOT treated as loopback because
+    Docker Desktop maps it to the host machine's *non-loopback* IP from
+    inside a container, and `extra_hosts` / DNS overrides can remap it
+    further (per Codex W-V43-11.5 review). Docker deployments that need to
+    reach a service on the host should set `ALLOW_REMOTE_VLLM=1` explicitly.
+    """
+    normalized = host.strip().lower()
+    if not normalized:
+        return False
+    if normalized in _LOOPBACK_HOSTS:
+        return True
+    try:
+        ip = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    return ip.is_loopback
 
 
 def _is_private_host(host: str) -> bool:
@@ -134,11 +160,15 @@ def _parse_config(raw_url: str, model_name: str, *, provider: str, api_key: str 
             f"{provider.upper()} base URL must include a hostname, got: {raw_url}"
         )
 
+    is_loopback = _is_loopback_host(parsed.hostname)
     is_private_network = _is_private_host(parsed.hostname)
-    if provider == "local" and not is_private_network and not _flag("ALLOW_REMOTE_VLLM", default=False):
+    if provider == "local" and not is_loopback and not _flag("ALLOW_REMOTE_VLLM", default=False):
         raise LLMConfigurationError(
-            "VLLM_URL must point to a localhost/private-network inference service "
-            "unless ALLOW_REMOTE_VLLM=1 is explicitly set."
+            "VLLM_URL must resolve to a loopback host (localhost, 127.0.0.1, ::1, "
+            "or any IP literal whose `is_loopback` is True) unless ALLOW_REMOTE_VLLM=1 "
+            "is explicitly set. As of W-V43-11.5 (R-2604-03 mitigation), private-network "
+            "addresses, `*.local`/`*.internal` mDNS, AND `host.docker.internal` all "
+            "require the explicit override."
         )
 
     return LLMConfig(
@@ -153,6 +183,7 @@ def _parse_config(raw_url: str, model_name: str, *, provider: str, api_key: str 
         is_private_network=is_private_network,
         api_key=api_key,
         is_external_validation=is_external_validation,
+        is_loopback_host=is_loopback,
     )
 
 
@@ -200,6 +231,7 @@ def _base_probe_payload(config: LLMConfig, *, timeout: float) -> dict[str, Any]:
         "probe_timeout_seconds": timeout,
         "is_private_network": config.is_private_network,
         "is_external_validation": config.is_external_validation,
+        "is_loopback_host": config.is_loopback_host,
     }
 
 

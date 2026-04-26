@@ -21,8 +21,32 @@ services:
       - SENTENCE_TRANSFORMERS_HOME=/opt/hf-cache
       - EMBEDDING_MODEL_NAME=BAAI/bge-large-zh-v1.5
       - RERANKER_MODEL_NAME=BAAI/bge-reranker-base
-      # Placeholder: point this to the actual local vLLM service port.
+      # ============================================================
+      # vLLM endpoint (W-V43-11.5 / R-2604-03 hardening notes apply):
+      # ============================================================
+      # Quickstart pattern: vLLM runs on the host machine; the container
+      # reaches it via `host.docker.internal` + the `extra_hosts` mapping
+      # below. As of W-V43-11.5 the local-provider gate is loopback-only
+      # by default, and `host.docker.internal` is no longer name-trusted
+      # as loopback (Docker Desktop maps it to a non-loopback host IP and
+      # `extra_hosts` can remap it further).
+      #
+      # CONSEQUENCE: `docker-compose up -d` with the shipped values will
+      # report a clear `LLMConfigurationError` on the first call to
+      # `/api/v1/chat` or `/api/v1/llm/health`. To unblock, either:
+      #   (a) Uncomment `ALLOW_REMOTE_VLLM=1` below (only safe if you know
+      #       VLLM_URL is a private endpoint you trust). Any non-loopback
+      #       target including private-LAN / `host.docker.internal` /
+      #       Compose-service-name `vllm` requires the override.
+      #   (b) Run vLLM as a process inside THIS container and point
+      #       VLLM_URL at `http://127.0.0.1:8001/v1`. No override needed.
+      #
+      # The default is intentionally fail-closed (override commented out)
+      # so a typo to a public endpoint such as `https://example.com/v1`
+      # cannot silently boot under `LLM_PROVIDER=local` and defeat the C1
+      # air-gap policy. Opt in consciously.
       - VLLM_URL=http://host.docker.internal:8001/v1
+      # - ALLOW_REMOTE_VLLM=1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
