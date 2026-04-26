@@ -9,7 +9,9 @@ Three read-only endpoints for the admin dashboard, all gated by
 
 The routes deliberately do NOT expose write operations — admin in T3 is a
 read-only observability role (FD-10). State mutation stays on normal routes
-that admins can still call (with quota/rate-limit bypass from Steps 4-5).
+that admins can still call. V4.3 W-V43-15 (PR54-1) tightened the runtime
+policy so admin principals only get quota/rate-limit bypass on this admin
+router surface (``ADMIN_PATH_PREFIX``), not on ordinary user-facing routes.
 """
 
 from __future__ import annotations
@@ -19,13 +21,21 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from core.governance.admin import get_admin_principal_ids, require_admin
+from core.governance.admin import (
+    ADMIN_PATH_PREFIX,
+    get_admin_principal_ids,
+    require_admin,
+)
 from core.governance.audit_store import AuditStore, MAX_QUERY_LIMIT
 from core.governance.quota_store import DailyUploadQuota, NotebookCountCap
 from core.security.auth import AuthPrincipal, auth_is_enabled
 
 
-router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+# Strip the trailing slash from ADMIN_PATH_PREFIX since FastAPI mounts the
+# router at this prefix and appends path components (e.g. "/health"). This
+# mechanical link guarantees that if the admin route surface ever moves,
+# `is_admin_path` and the actual mounted prefix cannot drift apart.
+router = APIRouter(prefix=ADMIN_PATH_PREFIX.rstrip("/"), tags=["admin"])
 
 # Recorded at import time — close enough for a lightweight liveness endpoint.
 _START_TIME = time.time()

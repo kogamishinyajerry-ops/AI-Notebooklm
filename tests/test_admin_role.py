@@ -270,3 +270,81 @@ def test_require_admin_allowlist_blank_returns_503(admin_app, monkeypatch):
     client = TestClient(admin_app)
     r = client.get("/admin-only", headers={"x-api-key": "key-alice"})
     assert r.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# W-V43-15 (PR54-1): admin path predicate single-source.
+# ---------------------------------------------------------------------------
+
+
+from unittest.mock import MagicMock  # noqa: E402
+
+from core.governance.admin import (  # noqa: E402
+    ADMIN_PATH_PREFIX,
+    is_admin_path,
+)
+
+
+def _request_with_path(path: str) -> Request:
+    req = MagicMock(spec=Request)
+    req.url = MagicMock()
+    req.url.path = path
+    return req
+
+
+def test_is_admin_path_matches_admin_prefix():
+    assert is_admin_path(_request_with_path(f"{ADMIN_PATH_PREFIX}status")) is True
+    assert is_admin_path(_request_with_path(f"{ADMIN_PATH_PREFIX}rate-limits/stats")) is True
+
+
+def test_is_admin_path_rejects_user_facing_routes():
+    """Defense-in-depth: chat/notebook routes must never satisfy the predicate."""
+    assert is_admin_path(_request_with_path("/api/v1/chat")) is False
+    assert is_admin_path(_request_with_path("/api/v1/notebooks/abc/sources")) is False
+    # A path that *contains* but does not start with the admin prefix must
+    # NOT be treated as admin (e.g. user-controlled identifiers).
+    assert is_admin_path(_request_with_path("/api/v1/chat/api/v1/admin/")) is False
+
+
+def test_require_admin_marks_bypass_via_path_predicate(monkeypatch):
+    """PR54-1 invariant: require_admin must delegate the bypass decision to
+    is_admin_path(request) rather than hard-coding True. We verify the call
+    by patching mark_admin_request (the contextvar mutation itself cannot be
+    asserted through TestClient because FastAPI runs sync deps in a
+    threadpool that does not propagate context mutations to the async
+    handler — see tests/test_rate_limit.py for the async-middleware
+    pattern that does propagate)."""
+    from unittest.mock import patch
+
+    from core.governance import admin as admin_module
+    from core.security.auth import AuthPrincipal as RealAuthPrincipal
+
+    monkeypatch.setenv("NOTEBOOKLM_API_KEYS", "alice:key-alice")
+    monkeypatch.setenv(ADMIN_PRINCIPALS_ENV, "alice")
+
+    fake_principal = RealAuthPrincipal(principal_id="alice", is_admin=True)
+
+    def call_with_path(path: str) -> bool:
+        req = MagicMock(spec=Request)
+        req.url = MagicMock()
+        req.url.path = path
+        req.app = MagicMock()
+        req.app.state = MagicMock()
+        req.app.state.audit_logger = None
+        req.method = "GET"
+        req.query_params = {}
+        with patch(
+            "core.security.auth.get_current_principal",
+            return_value=fake_principal,
+        ), patch(
+            "core.governance.rate_limit.mark_admin_request"
+        ) as mock_mark:
+            admin_module.require_admin(req)
+            assert mock_mark.call_count == 1
+            return mock_mark.call_args.args[0]
+
+    # Admin path → bypass enabled.
+    assert call_with_path(f"{ADMIN_PATH_PREFIX}status") is True
+    # Non-admin path with admin principal (mis-wiring or future reuse) →
+    # bypass MUST stay False because the path predicate is the SSOT.
+    assert call_with_path("/api/v1/chat") is False
