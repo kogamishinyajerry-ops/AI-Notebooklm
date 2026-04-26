@@ -122,6 +122,24 @@ def _resolve_rate_limit_db_path(app: FastAPI) -> Path | None:
     return Path(value)
 
 
+# W-V43-11.7 (closes Codex finding RL-53-01): when WEB_CONCURRENCY>1 the
+# rate limiter MUST use the shared SQLite backend, otherwise each worker
+# enforces an independent counter and the effective limit silently
+# multiplies by `workers`. Fail-closed at startup unless an operator has
+# explicitly opted in to per-worker semantics.
+ALLOW_MEMORY_STORE_MULTI_WORKER_ENV = "NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER"
+
+
+class MultiWorkerMisconfigurationError(RuntimeError):
+    """Raised at app startup when WEB_CONCURRENCY>1 but the rate-limit
+    backend would silently fall back to per-process MemoryStorage."""
+
+
+def _allow_memory_store_multi_worker() -> bool:
+    raw = os.getenv(ALLOW_MEMORY_STORE_MULTI_WORKER_ENV, "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _build_rate_limit_storage(
     app: FastAPI,
     workers: int,
@@ -129,6 +147,24 @@ def _build_rate_limit_storage(
     db_path = _resolve_rate_limit_db_path(app)
     if workers > 1 and db_path is not None:
         return SQLiteFixedWindowStorage(db_path), "sqlite", db_path
+    if workers > 1 and not _allow_memory_store_multi_worker():
+        raise MultiWorkerMisconfigurationError(
+            "WEB_CONCURRENCY=%s but the rate-limit shared SQLite backend is "
+            "not configured (app.state.%s is unset). Each worker would "
+            "enforce an independent in-memory counter and the effective "
+            "chat-request limit would silently multiply by %s. To fix, "
+            "expose the database path on app.state.%s during startup so "
+            "the limiter can use SQLiteFixedWindowStorage; this is what "
+            "apps/api/main.py:on_startup does. To explicitly opt into the "
+            "per-worker semantics (e.g. for local development), set "
+            "%s=1." % (
+                workers,
+                RATE_LIMIT_DB_PATH_STATE,
+                workers,
+                RATE_LIMIT_DB_PATH_STATE,
+                ALLOW_MEMORY_STORE_MULTI_WORKER_ENV,
+            )
+        )
     return MemoryStorage(), "memory", db_path
 
 
