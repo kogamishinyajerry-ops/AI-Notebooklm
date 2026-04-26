@@ -86,35 +86,68 @@ Notes:
 - Notebook creation is serialized inside a SQLite write transaction to avoid concurrent cap bypass.
 - Deleting a notebook immediately reduces the counted total.
 
-## Multi-Worker Limitation
+## Multi-Worker Behavior (V4.3 W-V43-11.7)
 
-`chat_requests` uses in-memory state.
+`chat_requests` storage is selected at `setup_rate_limit()` time based on
+two signals exposed by the FastAPI app:
 
-If `WEB_CONCURRENCY > 1`:
+| `WEB_CONCURRENCY` | `app.state.rate_limit_db_path` | Backend |
+|---|---|---|
+| `1` (or unset) | any | `MemoryStorage` (per-process, correct for single-worker) |
+| `>1` | set | `SQLiteFixedWindowStorage` (shared across workers) |
+| `>1` | unset | **startup raises `MultiWorkerMisconfigurationError`** |
 
-- each worker maintains its own chat rate buckets
-- the effective chat budget is approximately multiplied by worker count
-- upload and notebook quotas are not affected because they use SQLite-backed state
+`apps/api/main.py:on_startup` exposes `app.state.rate_limit_db_path` after
+the SQLite migration completes, so the production path is always the
+shared backend when `WEB_CONCURRENCY>1`. The fail-closed assertion
+prevents a silent regression where each worker would enforce an
+independent counter and the effective chat-request limit would multiply
+by the worker count.
+
+### Worker-count signal: WEB_CONCURRENCY must match `uvicorn --workers`
+
+`_detect_worker_count()` reads only the `WEB_CONCURRENCY` env var. If you
+deploy with `uvicorn --workers N` (e.g. `deploy/docker-compose.staging.yml`),
+you **MUST** also set `WEB_CONCURRENCY=N` in the container environment;
+the env var is the single source of truth the rate limiter consults. The
+staging compose pins both to keep them in lock-step (W-V43-11.7).
+
+### Opt-out (`NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER`)
+
+For local development or test scenarios where per-worker MemoryStore
+counters are intentional, set `NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER=1`.
+The startup assertion is suppressed and the existing
+`rate_limit.multi_worker_warning` log still fires so the choice is
+observable. Do **not** set this flag in production.
 
 At startup the API emits:
 
 - a warning log containing `rate_limit.multi_worker_warning`
 - a structured JSON log with worker count metadata
-
-Current recommendation:
-
-- accept this limitation for low-concurrency internal deployments
-- keep worker count low if strict chat throttling is required
+- (NEW) a startup `MultiWorkerMisconfigurationError` if `WEB_CONCURRENCY>1`
+  AND `app.state.rate_limit_db_path` is unset AND the opt-out flag is unset
 
 ## Troubleshooting
 
+### Startup fails with MultiWorkerMisconfigurationError
+
+The rate-limit shared SQLite backend is not wired. Confirm:
+
+- `app.state.rate_limit_db_path` is set during startup (the main API does
+  this in `on_startup`)
+- you are not running a custom FastAPI app that calls
+  `setup_rate_limit()` before exposing `rate_limit_db_path`
+
+If you genuinely want per-worker MemoryStore semantics, set
+`NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER=1`.
+
 ### Chat limit does not trigger when running multiple workers
 
-Expected with `MemoryStore`.
+Either the opt-out flag is set, or `WEB_CONCURRENCY` does not match
+`uvicorn --workers`. Check:
 
-Check:
-
-- `WEB_CONCURRENCY`
+- `WEB_CONCURRENCY` (must equal the actual worker count)
+- `NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER` (should be unset in prod)
 - startup logs for `rate_limit.multi_worker_warning`
 
 ### Upload quota appears to survive restart

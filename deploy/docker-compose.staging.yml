@@ -9,6 +9,13 @@ services:
     container_name: comac_notebooklm_staging
     env_file:
       - ./staging.env
+    # W-V43-11.7: keep WEB_CONCURRENCY in lock-step with `uvicorn --workers`.
+    # The rate limiter consults this env var to decide between the shared
+    # SQLite backend and per-process MemoryStorage; if the two drift, the
+    # silent per-worker counter regression returns. Update both values
+    # together when scaling workers.
+    environment:
+      WEB_CONCURRENCY: "1"
     ports:
       - "8000:8000"
     volumes:

@@ -769,3 +769,149 @@ def test_multi_worker_main_app_uses_shared_sqlite_storage(tmp_path, monkeypatch)
         assert response.status_code == 200
 
     assert api_main.app.state.rate_limit_backend == "sqlite"
+
+
+# ---------------------------------------------------------------------------
+# W-V43-11.7 (closes Codex finding RL-53-01): startup assertion when
+# WEB_CONCURRENCY>1 but the shared SQLite backend is not configured.
+# W-V43-11.8 (closes Codex finding RL-53-02): concurrent-worker behavior.
+# ---------------------------------------------------------------------------
+
+
+def test_multi_worker_without_db_path_raises(fresh_rate_limit_state, monkeypatch):
+    """RL-53-01: when WEB_CONCURRENCY>1 and no rate_limit_db_path is exposed
+    on app.state, setup_rate_limit must fail-closed at startup. Without this
+    assertion, the limiter silently falls back to per-process MemoryStorage
+    and the effective chat-request limit multiplies by `workers`."""
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    monkeypatch.delenv(
+        "NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER", raising=False
+    )
+    rate_limit_module = _load_rate_limit_module()
+
+    app = FastAPI()
+    # Deliberately do NOT set app.state.rate_limit_db_path.
+    with pytest.raises(rate_limit_module.MultiWorkerMisconfigurationError) as ei:
+        rate_limit_module.setup_rate_limit(app)
+    msg = str(ei.value)
+    assert "WEB_CONCURRENCY=2" in msg
+    assert "rate_limit_db_path" in msg
+    assert "NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER" in msg
+
+
+def test_multi_worker_explicit_opt_in_keeps_memory_store(
+    fresh_rate_limit_state, monkeypatch, caplog
+):
+    """RL-53-01: an operator can opt into per-worker MemoryStore semantics
+    (e.g. local dev) by setting NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER=1.
+    The existing warning still fires so the choice is observable."""
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    monkeypatch.setenv("NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER", "1")
+    caplog.set_level("WARNING", logger="comac.rate_limit")
+    rate_limit_module = _load_rate_limit_module()
+
+    app = FastAPI()
+    rate_limit_module.setup_rate_limit(app)
+    assert app.state.rate_limit_backend == "memory"
+    assert any(
+        "rate_limit.multi_worker_warning" in rec.getMessage()
+        for rec in caplog.records
+    )
+
+
+def test_multi_worker_with_db_path_picks_sqlite_no_raise(
+    fresh_rate_limit_state, monkeypatch
+):
+    """Sanity: when WEB_CONCURRENCY>1 AND db_path is wired, setup must not
+    raise — the assertion is targeted at the misconfiguration only."""
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    monkeypatch.delenv(
+        "NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER", raising=False
+    )
+    rate_limit_module = _load_rate_limit_module()
+
+    app = FastAPI()
+    app.state.rate_limit_db_path = fresh_rate_limit_state
+    rate_limit_module.setup_rate_limit(app)
+    assert app.state.rate_limit_backend == "sqlite"
+
+
+def test_single_worker_without_db_path_does_not_raise(
+    fresh_rate_limit_state, monkeypatch
+):
+    """RL-53-01 must NOT regress single-worker setups: WEB_CONCURRENCY=1
+    (or unset) is the unit-test and local-dev default; MemoryStorage is
+    correct there."""
+    monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
+    monkeypatch.delenv(
+        "NOTEBOOKLM_ALLOW_MEMORY_STORE_MULTI_WORKER", raising=False
+    )
+    rate_limit_module = _load_rate_limit_module()
+
+    app = FastAPI()
+    rate_limit_module.setup_rate_limit(app)
+    assert app.state.rate_limit_backend == "memory"
+
+
+def test_sqlite_storage_serializes_concurrent_incr(fresh_rate_limit_state):
+    """RL-53-02: when N threads concurrently call incr() on the shared
+    SQLiteFixedWindowStorage, the BEGIN IMMEDIATE serialization must
+    produce an exact count (no over-count from races, no under-count from
+    lost updates). Without proper serialization slowapi could undercount,
+    letting bursts exceed the configured limit.
+
+    Codex W-V43-11.7+8 round-1 P3: a `threading.Barrier` synchronizes the
+    threads so contention is guaranteed instead of being scheduler-dependent.
+    """
+    import threading
+
+    from core.governance.sqlite_rate_limit_storage import SQLiteFixedWindowStorage
+
+    storage = SQLiteFixedWindowStorage(fresh_rate_limit_state)
+    threads = 8
+    incr_per_thread = 25
+    expected = threads * incr_per_thread
+    barrier = threading.Barrier(threads)
+
+    def worker() -> int:
+        barrier.wait(timeout=10)
+        last = 0
+        for _ in range(incr_per_thread):
+            last = storage.incr("rl-test-key", expiry=60)
+        return last
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
+        list(pool.map(lambda _: worker(), range(threads)))
+
+    final = storage.get("rl-test-key")
+    assert final == expected, (
+        f"concurrent incr lost updates: expected {expected}, got {final}"
+    )
+
+
+def test_sqlite_storage_no_double_count_under_contention(fresh_rate_limit_state):
+    """RL-53-02 dual: the inverse failure mode — counter overshoots —
+    would let the rate limit *under-allow* requests, which is less
+    dangerous but still a correctness bug. Verify the final value never
+    exceeds the number of incr() calls issued. Same barrier pattern as
+    the sibling test for guaranteed contention."""
+    import threading
+
+    from core.governance.sqlite_rate_limit_storage import SQLiteFixedWindowStorage
+
+    storage = SQLiteFixedWindowStorage(fresh_rate_limit_state)
+    threads = 6
+    incr_per_thread = 10
+    upper_bound = threads * incr_per_thread
+    barrier = threading.Barrier(threads)
+
+    def worker() -> None:
+        barrier.wait(timeout=10)
+        for _ in range(incr_per_thread):
+            storage.incr("contention-key", expiry=60)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
+        list(pool.map(lambda _: worker(), range(threads)))
+
+    final = storage.get("contention-key")
+    assert final == upper_bound
