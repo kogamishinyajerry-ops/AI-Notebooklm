@@ -30,6 +30,16 @@ logger = logging.getLogger("comac.governance.admin")
 
 ADMIN_PRINCIPALS_ENV = "NOTEBOOKLM_ADMIN_PRINCIPALS"
 
+# Single source of truth for the admin route surface. Both the dependency
+# (``require_admin``) and the per-request principal wrapper in
+# ``apps/api/main.py`` consult this predicate so the invariant "runtime
+# bypass only activates on admin paths" cannot drift between call sites.
+ADMIN_PATH_PREFIX = "/api/v1/admin/"
+
+
+def is_admin_path(request: Request) -> bool:
+    return request.url.path.startswith(ADMIN_PATH_PREFIX)
+
 
 def _parse_admin_list(raw: str) -> Set[str]:
     result: Set[str] = set()
@@ -146,10 +156,13 @@ def require_admin(request: Request) -> "AuthPrincipal":
     if not principal.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     # V4.3: runtime bypass must be explicitly activated by the admin path,
-    # not by admin identity on ordinary user-facing routes.
+    # not by admin identity on ordinary user-facing routes. Defense-in-depth:
+    # if ``require_admin`` is ever wired onto a non-admin route by mistake,
+    # the predicate will refuse to mark the request as admin even though the
+    # caller is an admin principal.
     from core.governance.rate_limit import mark_admin_request
 
-    mark_admin_request(True)
+    mark_admin_request(is_admin_path(request))
     # ADMIN_ACCESS audit event — fires only on successful admin resolution,
     # not on 401/403 paths. Any audit failure is logged but does not break
     # the admin call (observability must not 500 a legitimate request).

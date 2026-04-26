@@ -337,12 +337,15 @@ def _admin_runtime_bypass_enabled(
 
     V4.3 tightens the runtime policy so an admin principal does not get
     quota/rate-limit bypass on ordinary user-facing routes purely by virtue of
-    identity. The current admin surface is read-only and lives under
-    ``/api/v1/admin/*``.
+    identity. The path predicate is single-sourced via
+    :func:`core.governance.admin.is_admin_path` so the invariant cannot drift
+    between this wrapper and ``require_admin``.
     """
     if not getattr(principal, "is_admin", False):
         return False
-    return request.url.path.startswith("/api/v1/admin/")
+    from core.governance.admin import is_admin_path
+
+    return is_admin_path(request)
 
 
 def get_current_principal(request: Request) -> Optional[AuthPrincipal]:
