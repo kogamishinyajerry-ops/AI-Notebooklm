@@ -24,6 +24,7 @@ def test_default_vllm_config_uses_local_endpoint(monkeypatch):
     assert config.base_url == "http://localhost:8001/v1"
     assert config.model_name == "qwen-2.5"
     assert config.is_private_network is True
+    assert config.is_loopback_host is True
 
 
 def test_public_vllm_url_rejected_by_default(monkeypatch):
@@ -44,6 +45,81 @@ def test_public_vllm_url_allowed_with_explicit_override(monkeypatch):
 
     assert config.base_url == "https://example.com/v1"
     assert config.is_private_network is False
+    assert config.is_loopback_host is False
+
+
+def test_private_lan_url_rejected_without_explicit_override(monkeypatch):
+    """W-V43-11.5: private-LAN endpoints now require ALLOW_REMOTE_VLLM=1.
+
+    R-2604-03 mitigation: tightening default to loopback-only for the C1
+    air-gap default lane. Private-LAN was implicitly allowed prior to this
+    change.
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("VLLM_URL", "http://192.168.1.10:8001/v1")
+    monkeypatch.delenv("ALLOW_REMOTE_VLLM", raising=False)
+
+    with pytest.raises(LLMConfigurationError):
+        get_local_llm_config()
+
+
+def test_private_lan_url_allowed_with_explicit_override(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("VLLM_URL", "http://192.168.1.10:8001/v1")
+    monkeypatch.setenv("ALLOW_REMOTE_VLLM", "1")
+
+    config = get_local_llm_config()
+
+    assert config.base_url == "http://192.168.1.10:8001/v1"
+    assert config.is_private_network is True
+    assert config.is_loopback_host is False
+
+
+def test_loopback_127_url_allowed(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("VLLM_URL", "http://127.0.0.1:8001/v1")
+    monkeypatch.delenv("ALLOW_REMOTE_VLLM", raising=False)
+
+    config = get_local_llm_config()
+
+    assert config.is_loopback_host is True
+
+
+def test_host_docker_internal_no_longer_trusted_as_loopback(monkeypatch):
+    """W-V43-11.5 Codex review: `host.docker.internal` is name-based trust.
+
+    Docker Desktop maps it to the host machine's non-loopback IP, and
+    `extra_hosts` / DNS overrides can remap it further. As of this PR it
+    is no longer treated as loopback — Docker deployments must set
+    ALLOW_REMOTE_VLLM=1 explicitly.
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("VLLM_URL", "http://host.docker.internal:8001/v1")
+    monkeypatch.delenv("ALLOW_REMOTE_VLLM", raising=False)
+
+    with pytest.raises(LLMConfigurationError):
+        get_local_llm_config()
+
+
+def test_host_docker_internal_allowed_with_explicit_override(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("VLLM_URL", "http://host.docker.internal:8001/v1")
+    monkeypatch.setenv("ALLOW_REMOTE_VLLM", "1")
+
+    config = get_local_llm_config()
+
+    assert config.is_loopback_host is False
+    assert config.is_private_network is True  # still in _ALLOWED_LOCAL_HOSTS
+
+
+def test_dot_local_suffix_rejected_without_explicit_override(monkeypatch):
+    """W-V43-11.5: .local mDNS suffixes are private-LAN, not loopback."""
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("VLLM_URL", "http://my-llm-box.local:8001/v1")
+    monkeypatch.delenv("ALLOW_REMOTE_VLLM", raising=False)
+
+    with pytest.raises(LLMConfigurationError):
+        get_local_llm_config()
 
 
 def test_minimax_config_uses_external_validation_lane(monkeypatch):
